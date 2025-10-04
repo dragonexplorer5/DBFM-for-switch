@@ -13,6 +13,13 @@ extern const char *g_theme_lines[];
 extern const int g_theme_count;
 
 void render_text_view(int top_row, int selected_row, const char **lines, int total_lines, int view_rows, int view_cols) {
+    // ensure selected_row is within visible window (caller may also adjust top_row,
+    // but make a best-effort here: clamp top_row so selected_row is visible)
+    if (selected_row < top_row) top_row = selected_row;
+    if (selected_row >= top_row + view_rows) top_row = selected_row - view_rows + 1;
+    if (top_row < 0) top_row = 0;
+    if (top_row > total_lines - view_rows) top_row = total_lines - view_rows < 0 ? 0 : total_lines - view_rows;
+
     printf("\x1b[1;1H"); // move to top-left
     for (int r = 0; r < view_rows; ++r) {
         int idx = top_row + r;

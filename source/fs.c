@@ -28,9 +28,28 @@ int list_directory(const char *path, char ***out_lines, int *out_count) {
         char full[1024]; snprintf(full, sizeof(full), "%s%s", path, ent->d_name);
         struct stat st;
         if (stat(full, &st) == 0 && S_ISDIR(st.st_mode)) {
-            size_t len = strlen(ent->d_name) + 2; // trailing '/'
+            // directory: determine if empty and if it contains a .zip-like file
+            int is_empty = 1;
+            int has_zip = 0;
+            DIR *d2 = opendir(full);
+            if (d2) {
+                struct dirent *e2;
+                while ((e2 = readdir(d2)) != NULL) {
+                    if (strcmp(e2->d_name, ".") == 0 || strcmp(e2->d_name, "..") == 0) continue;
+                    is_empty = 0;
+                    // check for .zip extension (case-insensitive)
+                    const char *dot = strrchr(e2->d_name, '.');
+                    if (dot && (strcasecmp(dot, ".zip") == 0 || strcasecmp(dot, ".zip") == 0)) has_zip = 1;
+                    if (!is_empty && !has_zip) break;
+                }
+                closedir(d2);
+            }
+            // format: name/ [ZIP] [EMPTY]
+            size_t len = strlen(ent->d_name) + 32;
             char *s = malloc(len);
-            snprintf(s, len, "%s/", ent->d_name);
+            if (has_zip) snprintf(s, len, "%s/ [ZIP]", ent->d_name);
+            else if (is_empty) snprintf(s, len, "%s/ [EMPTY]", ent->d_name);
+            else snprintf(s, len, "%s/", ent->d_name);
             lines = realloc(lines, sizeof(char*) * (count + 1)); lines[count++] = s;
         } else {
             char *s = strdup(ent->d_name);

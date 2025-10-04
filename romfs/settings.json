@@ -1,0 +1,10 @@
+{
+  "theme": {
+    "name": "dark",
+    "background": "black",
+    "highlight_text": "white",
+    "normal_text": "white",
+    "high_color": "yellow",
+    "hidden_tabs": []
+  }
+}

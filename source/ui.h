@@ -29,3 +29,7 @@ extern const int g_dumps_count;
 void render_install_detail(const InstallItem *item, int view_rows, int view_cols);
 
 #endif // HELLO_UI_H
+
+// Export menu data defined in ui_data.c
+extern const char *g_menu_items[];
+extern const int g_menu_count;

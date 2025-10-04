@@ -7,6 +7,7 @@ const char *g_menu_items[] = {
     "Dumps",
     "Settings",
     "Themes",
+    "Parental",
     "Exit"
 };
 const int g_menu_count = sizeof(g_menu_items) / sizeof(g_menu_items[0]);

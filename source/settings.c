@@ -1,4 +1,5 @@
 #include "settings.h"
+#include <switch.h>
 #include <stdio.h>
 #include <string.h>
 #include <sys/stat.h>
@@ -53,3 +54,41 @@ const char *settings_get_seq_normal(void) { return seq_normal; }
 const char *settings_get_seq_highlight(void) { return seq_highlight; }
 
 const char *settings_get_language(void) { return g_settings.language; }
+
+void settings_mark_parental_report(long epoch_seconds) {
+    g_settings.parental_last_report = epoch_seconds;
+    // Persist settings immediately
+    save_settings();
+}
+
+// Simple settings menu: toggle confirm_installs and cycle theme list
+void settings_menu(int view_rows, int view_cols) {
+    const char *options[] = { "Confirm installs", "Theme", "Save and return" };
+    const int opt_count = sizeof(options) / sizeof(options[0]);
+    int sel = 0;
+    PadState pad; padInitializeDefault(&pad); padConfigureInput(1, HidNpadStyleSet_NpadStandard);
+    while (appletMainLoop()) {
+        // render
+        printf("\x1b[1;1H");
+        for (int i = 0; i < opt_count; ++i) {
+            if (i == sel) printf("> %s\n", options[i]); else printf("  %s\n", options[i]);
+        }
+        printf("\nCurrent: Confirm=%d Theme=%s\n", g_settings.confirm_installs, g_settings.theme);
+        fflush(stdout);
+
+        padUpdate(&pad); u64 kd = padGetButtonsDown(&pad);
+        if (kd & HidNpadButton_Down) sel = (sel + 1) % opt_count;
+        if (kd & HidNpadButton_Up) sel = (sel - 1 + opt_count) % opt_count;
+        if (kd & HidNpadButton_A) {
+            if (sel == 0) { g_settings.confirm_installs = !g_settings.confirm_installs; save_settings(); }
+            else if (sel == 1) {
+                if (strcmp(g_settings.theme, "default") == 0) strcpy(g_settings.theme, "dark");
+                else if (strcmp(g_settings.theme, "dark") == 0) strcpy(g_settings.theme, "blue");
+                else strcpy(g_settings.theme, "default");
+                apply_theme(g_settings.theme); save_settings();
+            } else { break; }
+        }
+        if (kd & HidNpadButton_B) break;
+        consoleUpdate(NULL);
+    }
+}

@@ -1,0 +1,5 @@
+[
+  { "name": "Homebrew Downloads", "url": "https://example.com/homebrew-list.json" },
+  { "name": "My Saved Game", "url": "https://example.org/my-save-backup" },
+  { "name": "Official Site", "url": "https://devkitpro.org/" }
+]
