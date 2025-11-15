@@ -4,12 +4,12 @@
 #include <switch.h>
 
 // Connection states
-typedef enum {
-    UsbState_Disconnected,
-    UsbState_Connected,
-    UsbState_Ready,
-    UsbState_Error
-} UsbState;
+typedef enum AppUsbState {
+    AppUsbState_Disconnected,
+    AppUsbState_Connected,
+    AppUsbState_Ready,
+    AppUsbState_Error
+} AppUsbState;
 
 // File transfer modes
 typedef enum {
@@ -24,7 +24,7 @@ void usb_exit(void);
 // Connection management
 Result usb_start_service(void);
 void usb_stop_service(void);
-UsbState usb_get_state(void);
+AppUsbState usb_get_state(void);
 
 // File operations
 Result usb_send_file(const char* local_path, const char* remote_path,
@@ -38,7 +38,7 @@ Result usb_install_title(const char* remote_path,
 
 // Status and error handling
 const char* usb_get_error_message(Result rc);
-const char* usb_get_state_string(UsbState state);
+const char* usb_get_state_string(AppUsbState state);
 
 // Remote command interface
 Result usb_send_command(const char* command, char* response, size_t response_size);

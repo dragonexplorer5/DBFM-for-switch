@@ -1,8 +1,10 @@
 #include <stdio.h>
 #include <string.h>
 #include "ui.h"
+#include "ui_data.h"
 #include "install.h"
 #include "fs.h"
+#include <stdarg.h>
 
 // externs provided by main.c or other modules
 extern const char *g_menu_items[];
@@ -65,7 +67,8 @@ void render_install_detail(const InstallItem *item, int view_rows, int view_cols
 void render_active_view(int top_row, int selected_row, AppPage page, char **lines_buf, int total_lines, int view_rows, int view_cols) {
     switch (page) {
         case PAGE_MAIN_MENU:
-            render_text_view(top_row, selected_row, g_menu_items, g_menu_count, view_rows, view_cols);
+            // New homescreen layout (grid + top bar)
+            render_homescreen(top_row, selected_row, view_rows, view_cols);
             break;
         case PAGE_FILE_BROWSER:
             render_text_view(top_row, selected_row, (const char **)lines_buf, total_lines, view_rows, view_cols);
@@ -84,4 +87,60 @@ void render_active_view(int top_row, int selected_row, AppPage page, char **line
             render_text_view(top_row, selected_row, (const char **)lines_buf, total_lines, view_rows, view_cols);
             break;
     }
+}
+
+int ui_show_menu(const char *title, MenuItem *items, int count) {
+    // Very small, portable console fallback for menu selection.
+    // Returns the selected index (0-based). If nothing selected, returns -1.
+    if (!items || count <= 0) return -1;
+    printf("%s\n", title ? title : "Menu");
+    for (int i = 0; i < count; ++i) {
+        printf("%2d: %s %s\n", i, items[i].text ? items[i].text : "(nil)", items[i].enabled ? "" : "(disabled)");
+    }
+    // Simple default: return first enabled item
+    for (int i = 0; i < count; ++i) if (items[i].enabled) return i;
+    return 0;
+}
+
+void ui_show_message(const char *title, const char *fmt, ...) {
+    (void)title;
+    if (!fmt) return;
+    va_list ap; va_start(ap, fmt);
+    vprintf(fmt, ap);
+    printf("\n");
+    va_end(ap);
+}
+
+void ui_show_error(const char *title, const char *fmt, ...) {
+    (void)title;
+    if (!fmt) return;
+    va_list ap; va_start(ap, fmt);
+    vfprintf(stderr, fmt, ap);
+    fprintf(stderr, "\n");
+    va_end(ap);
+}
+
+void ui_set_status(const char *status) {
+    if (!status) return;
+    printf("Status: %s\n", status);
+    fflush(stdout);
+}
+
+int ui_show_dialog(const char *title, const char *message) {
+    (void)title;
+    if (!message) return 0;
+    printf("%s\n", message);
+    // Simple default: return true to confirm
+    return 1;
+}
+
+int ui_show_keyboard(const char *title, char *buf, size_t buf_len) {
+    (void)title;
+    if (!buf || buf_len == 0) return 0;
+    // Minimal keyboard: read a line from stdin
+    if (!fgets(buf, (int)buf_len, stdin)) return 0;
+    // strip newline
+    size_t L = strlen(buf);
+    if (L > 0 && buf[L-1] == '\n') buf[L-1] = '\0';
+    return 1;
 }

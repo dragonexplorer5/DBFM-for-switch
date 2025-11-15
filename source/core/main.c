@@ -5,12 +5,16 @@
 #include <unistd.h>
 #include <sys/select.h>
 #include <time.h>
+#include <stdarg.h>
+#include <sys/stat.h>
 #include <switch.h>
 #include "app.h"
 #include "crypto.h"
 #include "secure_validation.h"
 #include "security_audit.h"
 #include "security_tests.h"
+#include "ui.h"
+#include "settings.h"
 
 // Security initialization structure
 typedef struct {
@@ -22,41 +26,64 @@ typedef struct {
 
 static SecurityContext g_security_ctx = {0};
 
+// Small helper to write timestamped messages to sdmc so device logs can be
+// collected when console capture is not available.
+static void write_init_log_main(const char *fmt, ...) {
+    mkdir("sdmc:/dbfm", 0777);
+    mkdir("sdmc:/dbfm/logs", 0777);
+    FILE *f = fopen("sdmc:/dbfm/logs/init_debug.txt", "a");
+    if (!f) return;
+    time_t t = time(NULL);
+    struct tm *lt = localtime(&t);
+    if (lt) {
+        char ts[64];
+        strftime(ts, sizeof(ts), "%Y-%m-%d %H:%M:%S", lt);
+        fprintf(f, "%s - ", ts);
+    }
+    va_list ap; va_start(ap, fmt);
+    vfprintf(f, fmt, ap);
+    va_end(ap);
+    fprintf(f, "\n");
+    fclose(f);
+}
+
 // Initialize security subsystems
 static Result init_security(void) {
     Result rc = 0;
 
     // Initialize cryptographic subsystem
+    printf("init_security: crypto_init()\n"); write_init_log_main("init_security: crypto_init()");
     rc = crypto_init();
-    if (R_SUCCEEDED(rc)) {
-        g_security_ctx.crypto_initialized = true;
-        
-        // Initialize validation system
-        rc = validation_init();
-        if (R_SUCCEEDED(rc)) {
-            g_security_ctx.validation_initialized = true;
-            
-            // Initialize security audit system
-            rc = audit_init();
-            if (R_SUCCEEDED(rc)) {
-                g_security_ctx.audit_initialized = true;
-                
-                // Run initial security audit
-                AuditReport initial_report = {0};
-                rc = audit_run_quick_scan(&initial_report);
-                if (R_SUCCEEDED(rc)) {
-                    // Set initial security level based on audit
-                    g_security_ctx.current_security_level = 
-                        (initial_report.finding_count > 0) ? 
-                        SECURITY_WARNING : SECURITY_NORMAL;
-                    
-                    // Save initial audit report
-                    audit_save_report(&initial_report, "sdmc:/dbfm/audit/initial.json");
-                }
-                audit_free_report(&initial_report);
-            }
-        }
+    if (R_FAILED(rc)) { printf("init_security: crypto_init failed: 0x%x\n", rc); write_init_log_main("crypto_init failed: 0x%x", rc); return rc; }
+    g_security_ctx.crypto_initialized = true;
+    printf("init_security: crypto_init OK\n"); write_init_log_main("crypto_init OK");
+
+    // Initialize validation system
+    printf("init_security: validation_init()\n"); write_init_log_main("init_security: validation_init()");
+    rc = validation_init();
+    if (R_FAILED(rc)) { printf("init_security: validation_init failed: 0x%x\n", rc); write_init_log_main("validation_init failed: 0x%x", rc); return rc; }
+    g_security_ctx.validation_initialized = true;
+    printf("init_security: validation_init OK\n"); write_init_log_main("validation_init OK");
+
+    // Initialize security audit system
+    printf("init_security: audit_init()\n"); write_init_log_main("init_security: audit_init()");
+    rc = audit_init();
+    if (R_FAILED(rc)) { printf("init_security: audit_init failed: 0x%x\n", rc); write_init_log_main("audit_init failed: 0x%x", rc); return rc; }
+    g_security_ctx.audit_initialized = true;
+    printf("init_security: audit_init OK\n"); write_init_log_main("audit_init OK");
+
+    // Run initial security audit
+    AuditReport initial_report = {0};
+    printf("init_security: audit_run_quick_scan()\n"); write_init_log_main("init_security: audit_run_quick_scan()");
+    rc = audit_run_quick_scan(&initial_report);
+    if (R_FAILED(rc)) { printf("init_security: audit_run_quick_scan failed: 0x%x\n", rc); write_init_log_main("audit_run_quick_scan failed: 0x%x", rc); }
+    else {
+        // Set initial security level based on audit
+        g_security_ctx.current_security_level = (initial_report.finding_count > 0) ? SECURITY_WARNING : SECURITY_NORMAL;
+        // Save initial audit report
+        audit_save_report(&initial_report, "sdmc:/dbfm/audit/initial.json");
     }
+    audit_free_report(&initial_report);
     return rc;
 }
 
@@ -174,7 +201,8 @@ static int prompt_confirm(int gr, const char *msg) {
     return 0;
 }
 
-int main(int argc, char **argv)
+#if 0
+static int main_cli(int argc, char **argv)
 {
     int gen_lines = 0;
     for (int i = 1; i < argc; ++i) {
@@ -274,94 +302,20 @@ int main(int argc, char **argv)
                     if (selected_row >= 0 && selected_row < g_menu_count) {
                         sel = g_menu_items[selected_row];
                     }
-                    if (sel && strcmp(sel, "Files") == 0) {
-                        // Open file explorer module
-                        file_explorer_open("sdmc:/", view_rows, view_cols);
+                    if (sel && strcmp(sel, "File Manager") == 0) {
+                        // Open file explorer module (SD-root default)
+                        file_explorer_open("/", view_rows, view_cols);
                         // After returning, refresh main view
                         render_active_view(top_row, selected_row, page, lines_buf, total_lines, view_rows, view_cols);
-                    } else if (sel && strcmp(sel, "Downloads") == 0) {
+                    } else if (sel && strcmp(sel, "Game Install/Download") == 0) {
                         page = PAGE_DOWNLOADS;
                         list_mode = 1;
                         list_persistent = 0;
                         selected_idx = 0;
                         show_install_list(view_rows, g_candidates, g_candidate_count, selected_idx);
-                    } else if (sel && strcmp(sel, "Dumps") == 0) {
-                        int dsel = 0;
-                        while (appletMainLoop()) {
-                            render_text_view(0, dsel, g_dumps_menu, g_dumps_count, view_rows, view_cols);
-                            padUpdate(&pad);
-                            u64 kd2 = padGetButtonsDown(&pad);
-                            if (kd2 & HidNpadButton_Down) {
-                                dsel = (dsel + 1) % g_dumps_count;
-                            }
-                            if (kd2 & HidNpadButton_Up) {
-                                dsel = (dsel - 1 + g_dumps_count) % g_dumps_count;
-                            }
-                            if (kd2 & HidNpadButton_A) {
-                                if (dsel == 0) {
-                                    fs_dump_console_text(NULL, "Console dump saved by user\n");
-                                } else if (dsel == 1) {
-                                    if (page == PAGE_FILE_BROWSER && total_lines > 0) {
-                                        char selpath[1024];
-                                        snprintf(selpath, sizeof(selpath), "%s%s", cur_dir, lines_buf[selected_row]);
-                                        fs_dump_file(selpath, NULL);
-                                    } else {
-                                        char sample[256] = "sdmc:/switch/hello-world/settings.cfg";
-                                        fs_dump_file(sample, NULL);
-                                    }
-                                } else if (dsel == 2) {
-                                    char **dump_list = NULL;
-                                    int dump_count = 0;
-                                    if (list_directory("sdmc:/switch/hello-world/dumps/", &dump_list, &dump_count) == 0 && dump_count > 0) {
-                                        int dpick = 0;
-                                        while (appletMainLoop()) {
-                                            render_text_view(0, dpick, (const char **)dump_list, dump_count, view_rows, view_cols);
-                                            padUpdate(&pad);
-                                            u64 kd3 = padGetButtonsDown(&pad);
-                                            if (kd3 & HidNpadButton_Down) {
-                                                dpick = (dpick + 1) % dump_count;
-                                            }
-                                            if (kd3 & HidNpadButton_Up) {
-                                                dpick = (dpick - 1 + dump_count) % dump_count;
-                                            }
-                                            if (kd3 & HidNpadButton_A) {
-                                                char path[512];
-                                                snprintf(path, sizeof(path), "sdmc:/switch/hello-world/dumps/%s", dump_list[dpick]);
-                                                char confirm_msg[256];
-                                                snprintf(confirm_msg, sizeof(confirm_msg), "Restore %s?", dump_list[dpick]);
-                                                if (prompt_confirm(view_rows, confirm_msg)) {
-                                                    size_t L = strlen(path);
-                                                    if (L > 4 && strcmp(path + L - 4, ".txt") == 0) {
-                                                        fs_restore_console_text(path);
-                                                    } else {
-                                                        char dest[512];
-                                                        snprintf(dest, sizeof(dest), "sdmc:/switch/hello-world/restored_%s", dump_list[dpick]);
-                                                        if (prompt_confirm(view_rows, "Overwrite target if exists?")) {
-                                                            fs_restore_file(path, dest);
-                                                        }
-                                                    }
-                                                }
-                                                break;
-                                            }
-                                            if (kd3 & HidNpadButton_B) {
-                                                break;
-                                            }
-                                            consoleUpdate(NULL);
-                                        }
-                                        for (int i = 0; i < dump_count; ++i) {
-                                            free(dump_list[i]);
-                                        }
-                                        free(dump_list);
-                                    }
-                                } else if (dsel == 3) {
-                                    break;
-                                }
-                            }
-                            if (kd2 & HidNpadButton_B) {
-                                break;
-                            }
-                            consoleUpdate(NULL);
-                        }
+                    } else if (sel && strcmp(sel, "System Tools") == 0) {
+                        // Open centralized system tools menu
+                        system_manager_show_menu();
                     } else if (sel && strcmp(sel, "Settings") == 0) {
                         page = PAGE_SETTINGS;
                         settings_menu(view_rows, view_cols);
@@ -370,38 +324,10 @@ int main(int argc, char **argv)
                     } else if (sel && strcmp(sel, "Themes") == 0) {
                         page = PAGE_THEMES;
                         render_active_view(top_row, 0, page, lines_buf, total_lines, view_rows, view_cols);
-                    } else if (sel && strcmp(sel, "Parental") == 0) {
-                        int psel = 0;
-                        const char *par_lines[] = { "Parental Controls", "Force report", "Back" };
-                        int pcount = sizeof(par_lines)/sizeof(par_lines[0]);
-                        while (appletMainLoop()) {
-                            render_text_view(0, psel, par_lines, pcount, view_rows, view_cols);
-                            padUpdate(&pad);
-                            u64 kd2 = padGetButtonsDown(&pad);
-                            if (kd2 & HidNpadButton_Down) {
-                                psel = (psel + 1) % pcount;
-                            }
-                            if (kd2 & HidNpadButton_Up) {
-                                psel = (psel - 1 + pcount) % pcount;
-                            }
-                            if (kd2 & HidNpadButton_A) {
-                                if (psel == 1) {
-                                    if (parental_force_report() == 0) {
-                                        printf("\x1b[%d;1HReport sent\n", view_rows+2);
-                                    } else {
-                                        printf("\x1b[%d;1HReport failed or not configured\n", view_rows+2);
-                                    }
-                                    fflush(stdout);
-                                } else if (psel == 2) {
-                                    break;
-                                }
-                            }
-                            if (kd2 & HidNpadButton_B) {
-                                break;
-                            }
-                            consoleUpdate(NULL);
-                        }
-                        render_active_view(top_row, 0, page, lines_buf, total_lines, view_rows, view_cols);
+                    } else if (sel && strcmp(sel, "Exit") == 0) {
+                        // Exit selected: break out of main loop by returning to launcher
+                        consoleExit(NULL);
+                        return 0;
                     }
                 }
                 else if (page == PAGE_FILE_BROWSER) {
@@ -558,3 +484,4 @@ int main(int argc, char **argv)
 
     setExit(); consoleExit(NULL); return 0;
 }
+#endif

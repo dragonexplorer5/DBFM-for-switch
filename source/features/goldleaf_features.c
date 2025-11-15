@@ -4,18 +4,17 @@
 #include "../title_key.h"
 #include "../browser.h"
 #include "../ui.h"
+#include "../system/system_manager.h"
+#include "../logger.h"
+#include "../security/security_mode.h"
 #include "../task_queue.h"
 #include "../fs.h"
+#include "auto_folders.h"
+#include "../ui/system_diagnostics.h"
 #include <stdio.h>
 #include <string.h>
 
-static void _show_transfer_progress(size_t current, size_t total) {
-    static char progress_text[64];
-    float percentage = (float)current / total * 100.0f;
-    snprintf(progress_text, sizeof(progress_text),
-             "Transferring: %.1f%%", percentage);
-    ui_set_status(progress_text);
-}
+// _show_transfer_progress removed - kept transfer status rendering in callers
 
 static void _start_usb_service(void) {
     Result rc = usb_start_service();
@@ -204,11 +203,16 @@ Result goldleaf_init(void) {
 
     rc = browser_init();
     if (R_FAILED(rc)) return rc;
+    
+    // Initialize system diagnostics
+    system_diagnostics_init();
+    system_log(SYSTEM_LOG_INFO, "Goldleaf features initialized with diagnostics");
 
     return 0;
 }
 
 void goldleaf_exit(void) {
+    system_diagnostics_exit();
     browser_exit();
     titlekey_exit();
     usb_exit();
@@ -222,11 +226,23 @@ void goldleaf_show_menu(void) {
         {"Title Key Management", true},
         {"Import Title Key", true},
         {"Web Browser", true},
+        {"Auto Folders", true},
+        {"System Diagnostics", true},
+        {"System Log", true},
+        {"Security Settings", true},
         {"Back", true}
     };
-
+    int item_count = sizeof(items) / sizeof(items[0]);
     while (1) {
-        int selection = ui_show_menu("Goldleaf Features", items, 6);
+        // Update diagnostics in background
+        system_diagnostics_update();
+
+        // Check for critical temperature shutdown
+        if (system_should_shutdown()) {
+            break;
+        }
+
+        int selection = ui_show_menu("Goldleaf Features", items, item_count);
         
         switch (selection) {
             case 0:
@@ -245,6 +261,18 @@ void goldleaf_show_menu(void) {
                 _browse_url();
                 break;
             case 5:
+                auto_folders_show_menu();
+                break;
+            case 6:
+                system_diagnostics_show();
+                break;
+            case 7:
+                logger_show_viewer();
+                break;
+            case 8:
+                security_show_settings();
+                break;
+            case 9:
             default:
                 return;
         }

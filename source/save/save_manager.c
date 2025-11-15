@@ -1,13 +1,16 @@
+#include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <dirent.h>
 #include <sys/stat.h>
 #include "save_manager.h"
+#include "../ui/ui_data.h"
 
 #define SAVE_TRANSFER_BUFFER_SIZE (1024 * 1024)
 
 static u8* transfer_buffer = NULL;
-static FsSaveDataIterator save_iterator;
 static FsSaveDataInfoReader save_reader;
+static FsSaveDataFilter save_filter;
 
 static Result initialize_transfer_buffer(void) {
     if (!transfer_buffer) {
@@ -17,47 +20,60 @@ static Result initialize_transfer_buffer(void) {
     return 0;
 }
 
-static Result open_save_iterator(void) {
-    return fsOpenSaveDataIterator(&save_iterator, FsSaveDataSpaceId_User);
+// Initialize/cleanup implementations
+Result save_manager_init(void) {
+    // Allocate transfer buffer proactively for save operations
+    return initialize_transfer_buffer();
 }
 
-static void close_save_iterator(void) {
-    fsSaveDataIteratorClose(&save_iterator);
+void save_manager_exit(void) {
+    if (transfer_buffer) {
+        free(transfer_buffer);
+        transfer_buffer = NULL;
+    }
 }
 
-static Result open_save_reader(FsSaveDataInfo* info) {
-    return fsOpenSaveDataInfoReader(&save_reader, info);
+static Result open_save_reader(void) {
+    // Open save data info reader directly with user space ID
+    return fsOpenSaveDataInfoReader(&save_reader, FsSaveDataSpaceId_User);
 }
 
 static void close_save_reader(void) {
     fsSaveDataInfoReaderClose(&save_reader);
 }
 
-static Result mount_save_data(u64 titleId, FsFileSystem* out) {
+Result mount_save_data(FsFileSystem* out, u64 title_id) {
     Result rc = 0;
     
     // Find the save data for this title
     FsSaveDataInfo info = {0};
     s64 total_entries = 0;
     
-    rc = open_save_iterator();
+    rc = open_save_reader();
     if (R_FAILED(rc)) return rc;
     
     while (true) {
-        rc = fsSaveDataIteratorRead(&save_iterator, &info, 1, &total_entries);
+        rc = fsSaveDataInfoReaderRead(&save_reader, &info, 1, &total_entries);
         if (R_FAILED(rc) || total_entries == 0) break;
         
-        if (info.application_id == titleId) {
-            rc = fsOpenSaveDataFileSystem(out, FsSaveDataSpaceId_User, &info);
+        if (info.application_id == title_id) {
+            FsSaveDataAttribute attr = {
+                .application_id = title_id,
+                .uid = info.uid,
+                .save_data_type = FsSaveDataType_Account,
+                .system_save_data_id = info.system_save_data_id
+            };
+            rc = fsOpenSaveDataFileSystem(out, FsSaveDataSpaceId_User, &attr);
             break;
         }
     }
     
-    close_save_iterator();
+    close_save_reader();
     return rc;
 }
 
-Result save_backup_title(u64 title_id, const char* backup_path) {
+Result save_backup_title(u64 title_id, const char* backup_path,
+                      void (*progress_cb)(const char* status, size_t current, size_t total)) {
     Result rc = 0;
     FsFileSystem save_fs;
     
@@ -66,13 +82,18 @@ Result save_backup_title(u64 title_id, const char* backup_path) {
     if (R_FAILED(rc)) return rc;
     
     // Mount save data
-    rc = mount_save_data(title_id, &save_fs);
+    rc = mount_save_data(&save_fs, title_id);
     if (R_FAILED(rc)) return rc;
     
     // Create backup directory
     char save_path[PATH_MAX];
     snprintf(save_path, PATH_MAX, "%s/%016lx", backup_path, title_id);
     mkdir(save_path, 0777);
+    
+    if (progress_cb) {
+        progress_cb("Creating backup directory", 0, 1);
+        ui_set_task("Creating backup directory", 0);
+    }
     
     // Open save directory
     FsDir dir;
@@ -94,12 +115,19 @@ Result save_backup_title(u64 title_id, const char* backup_path) {
         snprintf(src_path, PATH_MAX, "/%s", dir_entry.name);
         snprintf(dst_path, PATH_MAX, "%s/%s", save_path, dir_entry.name);
         
+        if (progress_cb) {
+            progress_cb(dir_entry.name, 0, 1);
+            ui_set_task(dir_entry.name, 0);
+        } else {
+            ui_set_task(dir_entry.name, 0);
+        }
+        
         if (dir_entry.type == FsDirEntryType_Dir) {
             // Create directory
             mkdir(dst_path, 0777);
         } else {
             // Copy file
-            FsFile src_file, dst_file;
+            FsFile src_file;
             rc = fsFsOpenFile(&save_fs, src_path, FsOpenMode_Read, &src_file);
             if (R_FAILED(rc)) continue;
             
@@ -113,19 +141,28 @@ Result save_backup_title(u64 title_id, const char* backup_path) {
             rc = fsFileGetSize(&src_file, &file_size);
             if (R_SUCCEEDED(rc)) {
                 s64 offset = 0;
+                u64 bytes_read = 0;
                 while (offset < file_size) {
                     size_t read_size = file_size - offset > SAVE_TRANSFER_BUFFER_SIZE ? 
                                      SAVE_TRANSFER_BUFFER_SIZE : file_size - offset;
                     
-                    rc = fsFileRead(&src_file, offset, transfer_buffer, read_size);
+                    rc = fsFileRead(&src_file, offset, transfer_buffer, read_size, 0, &bytes_read);
                     if (R_FAILED(rc)) break;
                     
-                    if (fwrite(transfer_buffer, 1, read_size, dst) != read_size) {
+                    if (fwrite(transfer_buffer, 1, bytes_read, dst) != bytes_read) {
                         rc = -1;
                         break;
                     }
                     
-                    offset += read_size;
+                    offset += bytes_read;
+                    if (progress_cb) {
+                        progress_cb(dir_entry.name, offset, file_size);
+                    }
+                    // Update UI progress for this file
+                    if (file_size > 0) {
+                        int pct = (int)((offset * 100) / file_size);
+                        ui_set_task(dir_entry.name, pct);
+                    }
                 }
             }
             
@@ -136,10 +173,16 @@ Result save_backup_title(u64 title_id, const char* backup_path) {
     
     fsDirClose(&dir);
     fsFsClose(&save_fs);
+    
+    if (progress_cb) {
+        progress_cb("Backup complete", 1, 1);
+    }
+    ui_clear_task();
     return rc;
 }
 
-Result save_restore_title(u64 title_id, const char* backup_path) {
+Result save_restore_title(u64 title_id, const char* backup_path,
+                       void (*progress_cb)(const char* status, size_t current, size_t total)) {
     Result rc = 0;
     FsFileSystem save_fs;
     
@@ -148,11 +191,15 @@ Result save_restore_title(u64 title_id, const char* backup_path) {
     if (R_FAILED(rc)) return rc;
     
     // Mount save data
-    rc = mount_save_data(title_id, &save_fs);
+    rc = mount_save_data(&save_fs, title_id);
     if (R_FAILED(rc)) return rc;
     
     char save_path[PATH_MAX];
     snprintf(save_path, PATH_MAX, "%s/%016lx", backup_path, title_id);
+    
+    if (progress_cb) {
+        progress_cb("Checking backup", 0, 1);
+    }
     
     // Verify backup exists
     struct stat st;
@@ -168,6 +215,10 @@ Result save_restore_title(u64 title_id, const char* backup_path) {
         return -2;
     }
     
+    if (progress_cb) {
+        progress_cb("Starting restore", 0, 1);
+    }
+    
     // Read directory entries
     struct dirent* ent;
     while ((ent = readdir(dir)) != NULL) {
@@ -179,6 +230,10 @@ Result save_restore_title(u64 title_id, const char* backup_path) {
         snprintf(src_path, PATH_MAX, "%s/%s", save_path, ent->d_name);
         snprintf(dst_path, PATH_MAX, "/%s", ent->d_name);
         
+        if (progress_cb) {
+            progress_cb(ent->d_name, 0, 1);
+        }
+        
         if (ent->d_type == DT_DIR) {
             // Create directory in save
             rc = fsFsCreateDirectory(&save_fs, dst_path);
@@ -188,6 +243,12 @@ Result save_restore_title(u64 title_id, const char* backup_path) {
             FILE* src = fopen(src_path, "rb");
             if (!src) continue;
             
+            struct stat file_st;
+            if (stat(src_path, &file_st) != 0) {
+                fclose(src);
+                continue;
+            }
+            
             FsFile dst_file;
             rc = fsFsCreateFile(&save_fs, dst_path, 0, 0);
             if (R_SUCCEEDED(rc)) {
@@ -195,11 +256,14 @@ Result save_restore_title(u64 title_id, const char* backup_path) {
                 if (R_SUCCEEDED(rc)) {
                     s64 offset = 0;
                     size_t bytes_read;
-                    while ((bytes_read = fread(transfer_buffer, 1, 
-                           SAVE_TRANSFER_BUFFER_SIZE, src)) > 0) {
-                        rc = fsFileWrite(&dst_file, offset, transfer_buffer, bytes_read);
+                    while ((bytes_read = fread(transfer_buffer, 1, SAVE_TRANSFER_BUFFER_SIZE, src)) > 0) {
+                        rc = fsFileWrite(&dst_file, offset, transfer_buffer, bytes_read, 0);
                         if (R_FAILED(rc)) break;
                         offset += bytes_read;
+                        
+                        if (progress_cb) {
+                            progress_cb(ent->d_name, offset, file_st.st_size);
+                        }
                     }
                     
                     rc = fsFileFlush(&dst_file);
@@ -213,32 +277,38 @@ Result save_restore_title(u64 title_id, const char* backup_path) {
     
     closedir(dir);
     fsFsClose(&save_fs);
+    
+    if (progress_cb) {
+        progress_cb("Restore complete", 1, 1);
+    }
     return rc;
 }
 
-Result save_backup_all(const char* backup_path) {
+Result save_backup_all(const char* backup_path,
+                      void (*progress_cb)(const char* status, size_t current, size_t total)) {
     Result rc = 0;
     FsSaveDataInfo info = {0};
     
-    // Open save data iterator
-    rc = fsOpenSaveDataIterator(&info, FsSaveDataSpaceId_User);
+    // Open save data reader
+    rc = open_save_reader();
     if (R_FAILED(rc)) return rc;
     
     // Iterate through all saves
-    u64 total_entries = 0;
+    s64 total_entries = 0;
     while (R_SUCCEEDED(rc)) {
-        rc = fsSaveDataIteratorRead(&info, &total_entries, 1);
+        rc = fsSaveDataInfoReaderRead(&save_reader, &info, 1, &total_entries);
         if (R_FAILED(rc) || total_entries == 0) break;
         
-        rc = save_backup_title(info.application_id, backup_path);
+        rc = save_backup_title(info.application_id, backup_path, progress_cb);
         if (R_FAILED(rc)) break;
     }
     
-    fsSaveDataIteratorClose(&info);
+    close_save_reader();
     return rc;
 }
 
-Result save_restore_all(const char* backup_path) {
+Result save_restore_all(const char* backup_path,
+                       void (*progress_cb)(const char* status, size_t current, size_t total)) {
     Result rc = 0;
     DIR* dir = opendir(backup_path);
     if (!dir) return -1;
@@ -248,7 +318,7 @@ Result save_restore_all(const char* backup_path) {
         if (ent->d_type == DT_DIR && strlen(ent->d_name) == 16) {
             // Convert directory name to title ID
             u64 title_id = strtoull(ent->d_name, NULL, 16);
-            rc = save_restore_title(title_id, backup_path);
+            rc = save_restore_title(title_id, backup_path, progress_cb);
             if (R_FAILED(rc)) break;
         }
     }
@@ -262,30 +332,31 @@ Result save_list_titles(char*** out_titles, int* out_count) {
     FsSaveDataInfo info = {0};
     
     // Count titles first
-    rc = fsOpenSaveDataIterator(&info, FsSaveDataSpaceId_User);
+    rc = open_save_reader();
     if (R_FAILED(rc)) return rc;
     
-    u64 total_entries = 0;
+    s64 total_entries = 0;
     int count = 0;
     while (R_SUCCEEDED(rc)) {
-        rc = fsSaveDataIteratorRead(&info, &total_entries, 1);
+        rc = fsSaveDataInfoReaderRead(&save_reader, &info, 1, &total_entries);
         if (R_FAILED(rc) || total_entries == 0) break;
         count++;
     }
     
+    close_save_reader();
+    
     // Allocate memory for titles
     char** titles = (char**)malloc(count * sizeof(char*));
     if (!titles) {
-        fsSaveDataIteratorClose(&info);
         return -1;
     }
     
-    // Reset iterator and fill titles
-    rc = fsOpenSaveDataIterator(&info, FsSaveDataSpaceId_User);
+    // Reset reader and fill titles
+    rc = open_save_reader();
     if (R_SUCCEEDED(rc)) {
         int i = 0;
         while (R_SUCCEEDED(rc) && i < count) {
-            rc = fsSaveDataIteratorRead(&info, &total_entries, 1);
+            rc = fsSaveDataInfoReaderRead(&save_reader, &info, 1, &total_entries);
             if (R_FAILED(rc) || total_entries == 0) break;
             
             titles[i] = (char*)malloc(256);
@@ -294,9 +365,9 @@ Result save_list_titles(char*** out_titles, int* out_count) {
             }
             i++;
         }
+        
+        close_save_reader();
     }
-    
-    fsSaveDataIteratorClose(&info);
     
     *out_titles = titles;
     *out_count = count;

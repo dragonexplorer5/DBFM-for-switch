@@ -13,8 +13,15 @@
 #include <curl/curl.h>
 #endif
 
+#if defined(USE_LIBCURL) || defined(USE_MBEDTLS)
+#define HAVE_TLS 1
+#else
+#define HAVE_TLS 0
+#endif
+
 // Edit this list to change which homebrew are shown (no CFW packs included)
 InstallItem g_candidates[] = {
+#if HAVE_TLS
     { "hbmenu", "https://github.com/switchbrew/nx-hbmenu/releases/download/v3.6.0/nx-hbmenu_v3.6.0.zip", "Homebrew Menu", "Homebrew Menu", false },
     { "nx-shell", "https://github.com/joel16/NX-Shell/releases/download/4.01/NX-Shell.nro", "ファイルシェル", "File Shell", false },
     { "Checkpoint", "https://github.com/BernardoGiordano/Checkpoint/releases/download/v3.10.1/Checkpoint.nro", "セーブマネージャー", "Save Manager", false },
@@ -35,6 +42,7 @@ InstallItem g_candidates[] = {
     { "nx-vortex", "https://github.com/nh-server/nx-vortex/releases/download/v1.5.0/nx-vortex.nro", "パッケージ管理", "Package manager", false },  
     { "Fizeau", "https://github.com/nh-server/fizeau/releases/download/v1.0.0/fizeau.nro", "ファイル管理", "color manager", false },
     { "nx-ovlloader+", "https://github.com/ppkantorski/nx-ovlloader/releases/download/v1.1.1/nx-ovlloader+.zip", "オーバーレイローダー", "Overlay loader", false },
+#endif
     { "nx-ovlloader", "http://example.com/nxovlloader.nro", "オーバーレイローダー", "Overlay loader", false },
     { "nx-hbloader", "http://example.com/hbloader.nro", "ホームブリューランチャー", "Homebrew launcher", false },
     { "usbloader", "http://example.com/usbloader.nro", "USB ファイルアクセス", "USB file access", false },

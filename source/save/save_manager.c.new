@@ -1,0 +1,88 @@
+Result save_backup_all(const char* backup_path,
+                    void (*progress_cb)(const char* status, size_t current, size_t total)) {
+    Result rc = 0;
+    FsSaveDataInfo info = {0};
+    
+    // Count total saves first for progress reporting
+    rc = open_save_reader();
+    if (R_FAILED(rc)) return rc;
+    
+    s64 total_entries = 0;
+    int total_saves = 0;
+    while (R_SUCCEEDED(rc)) {
+        rc = fsSaveDataInfoReaderRead(&save_reader, &info, 1, &total_entries);
+        if (R_FAILED(rc) || total_entries == 0) break;
+        total_saves++;
+    }
+    
+    close_save_reader();
+    
+    // Open save data reader again for actual backup
+    rc = open_save_reader();
+    if (R_FAILED(rc)) return rc;
+    
+    // Iterate through all saves
+    int current_save = 0;
+    while (R_SUCCEEDED(rc)) {
+        rc = fsSaveDataInfoReaderRead(&save_reader, &info, 1, &total_entries);
+        if (R_FAILED(rc) || total_entries == 0) break;
+        
+        if (progress_cb) {
+            char title_name[256] = {0};
+            save_get_title_name(info.application_id, title_name, sizeof(title_name));
+            progress_cb(title_name, current_save++, total_saves);
+        }
+        
+        rc = save_backup_title(info.application_id, backup_path, progress_cb);
+        if (R_FAILED(rc)) break;
+    }
+    
+    close_save_reader();
+    
+    if (progress_cb) {
+        progress_cb("Backup complete", total_saves, total_saves);
+    }
+    return rc;
+}
+
+Result save_restore_all(const char* backup_path,
+                     void (*progress_cb)(const char* status, size_t current, size_t total)) {
+    Result rc = 0;
+    DIR* dir = opendir(backup_path);
+    if (!dir) return -1;
+    
+    // Count total saves first for progress reporting
+    int total_saves = 0;
+    struct dirent* ent;
+    while ((ent = readdir(dir))) {
+        if (ent->d_type == DT_DIR && strlen(ent->d_name) == 16) {
+            total_saves++;
+        }
+    }
+    
+    rewinddir(dir);
+    
+    int current_save = 0;
+    while ((ent = readdir(dir))) {
+        if (ent->d_type == DT_DIR && strlen(ent->d_name) == 16) {
+            // Convert directory name to title ID
+            u64 title_id = strtoull(ent->d_name, NULL, 16);
+            
+            if (progress_cb) {
+                char title_name[256] = {0};
+                save_get_title_name(title_id, title_name, sizeof(title_name));
+                progress_cb(title_name, current_save++, total_saves);
+            }
+            
+            rc = save_restore_title(title_id, backup_path, progress_cb);
+            if (R_FAILED(rc)) break;
+        }
+    }
+    
+    closedir(dir);
+    
+    if (progress_cb) {
+        progress_cb("Restore complete", total_saves, total_saves);
+    }
+    return rc;
+}

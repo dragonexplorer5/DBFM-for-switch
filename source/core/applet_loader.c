@@ -1,6 +1,8 @@
 #include "applet_loader.h"
 #include "../security/crypto.h"
 #include "../security/secure_validation.h"
+#include "../browser.h"
+#include "../save/save_manager.h"
 #include <malloc.h>
 #include <string.h>
 
@@ -12,16 +14,16 @@
 
 // Static applet registry
 static struct {
-    AppletInstance* loaded_applets[16];
+    CustomAppletInstance* loaded_applets[16];
     size_t loaded_count;
     size_t total_memory_used;
     bool initialized;
 } g_applet_system = {0};
 
 // Default applet configurations
-static const AppletInfo g_default_configs[] = {
+static const CustomAppletInfo g_default_configs[] = {
     {
-        .type = APPLET_BROWSER,
+        .type = CUSTOM_APPLET_BROWSER,
         .name = "Browser",
         .description = "Hidden browser access",
         .memory_req = {
@@ -63,13 +65,13 @@ void applet_loader_exit(void) {
     memset(&g_applet_system, 0, sizeof(g_applet_system));
 }
 
-Result applet_load(AppletType type, AppletInstance** instance) {
+Result applet_load(CustomAppletType type, CustomAppletInstance** instance) {
     Result rc = 0;
-    AppletInstance* new_instance = NULL;
+    CustomAppletInstance* new_instance = NULL;
     bool memory_available = false;
 
     // Validate parameters
-    if (!instance || type < 0 || type >= APPLET_SECURITY) {
+    if (!instance || type < 0 || type >= CUSTOM_APPLET_SECURITY) {
         return MAKERESULT(Module_Libnx, LibnxError_BadInput);
     }
 
@@ -83,22 +85,23 @@ Result applet_load(AppletType type, AppletInstance** instance) {
     }
 
     // Check system resources
-    AppletInfo config = g_default_configs[type];
+    CustomAppletInfo config = g_default_configs[type];
     rc = applet_check_memory_available(&config.memory_req, &memory_available);
     if (R_FAILED(rc) || !memory_available) {
         return MAKERESULT(Module_Libnx, LibnxError_OutOfMemory);
     }
 
+
     // Allocate instance
-    new_instance = (AppletInstance*)malloc(sizeof(AppletInstance));
+    new_instance = (CustomAppletInstance*)malloc(sizeof(CustomAppletInstance));
     if (!new_instance) {
         return MAKERESULT(Module_Libnx, LibnxError_OutOfMemory);
     }
-    memset(new_instance, 0, sizeof(AppletInstance));
+    memset(new_instance, 0, sizeof(CustomAppletInstance));
 
     // Set up instance
     new_instance->info = config;
-    new_instance->state = APPLET_STATE_LOADING;
+    new_instance->state = CUSTOM_APPLET_STATE_LOADING;
 
     // Allocate memory
     rc = applet_allocate_memory(new_instance);
@@ -109,10 +112,10 @@ Result applet_load(AppletType type, AppletInstance** instance) {
 
     // Load applet-specific resources
     switch (type) {
-        case APPLET_BROWSER:
+        case CUSTOM_APPLET_BROWSER:
             rc = browser_init();
             break;
-        case APPLET_SAVE_MANAGER:
+        case CUSTOM_APPLET_SAVE_MANAGER:
             rc = save_manager_init();
             break;
         // Add other applet initializations
@@ -134,30 +137,30 @@ Result applet_load(AppletType type, AppletInstance** instance) {
     } else {
         applet_free_memory(new_instance);
         free(new_instance);
-        return MAKERESULT(Module_Libnx, LibnxError_OutOfResource);
+        return MAKERESULT(Module_Libnx, LibnxError_OutOfMemory);
     }
 
-    new_instance->state = APPLET_STATE_READY;
+    new_instance->state = CUSTOM_APPLET_STATE_READY;
     *instance = new_instance;
     return 0;
 }
 
-Result applet_unload(AppletInstance* instance) {
+Result applet_unload(CustomAppletInstance* instance) {
     if (!instance) {
         return MAKERESULT(Module_Libnx, LibnxError_BadInput);
     }
 
     // Save state if needed
-    if (instance->preserve_state) {
+    if (instance->info.preserve_state) {
         applet_save_state(instance);
     }
 
     // Cleanup applet-specific resources
     switch (instance->info.type) {
-        case APPLET_BROWSER:
+        case CUSTOM_APPLET_BROWSER:
             browser_exit();
             break;
-        case APPLET_SAVE_MANAGER:
+        case CUSTOM_APPLET_SAVE_MANAGER:
             save_manager_exit();
             break;
         // Add other applet cleanups
@@ -179,31 +182,29 @@ Result applet_unload(AppletInstance* instance) {
     return 0;
 }
 
-Result applet_suspend(AppletInstance* instance) {
-    if (!instance || instance->state != APPLET_STATE_ACTIVE) {
+Result applet_suspend(CustomAppletInstance* instance) {
+    if (!instance || instance->state != CUSTOM_APPLET_STATE_ACTIVE) {
         return MAKERESULT(Module_Libnx, LibnxError_BadInput);
     }
-
     // Save state if needed
-    if (instance->preserve_state) {
+    if (instance->info.preserve_state) {
         applet_save_state(instance);
     }
 
-    instance->state = APPLET_STATE_SUSPENDED;
+    instance->state = CUSTOM_APPLET_STATE_SUSPENDED;
     return 0;
 }
 
-Result applet_resume(AppletInstance* instance) {
-    if (!instance || instance->state != APPLET_STATE_SUSPENDED) {
+Result applet_resume(CustomAppletInstance* instance) {
+    if (!instance || instance->state != CUSTOM_APPLET_STATE_SUSPENDED) {
         return MAKERESULT(Module_Libnx, LibnxError_BadInput);
     }
-
     // Restore state if needed
-    if (instance->preserve_state) {
+    if (instance->info.preserve_state) {
         applet_restore_state(instance);
     }
 
-    instance->state = APPLET_STATE_ACTIVE;
+    instance->state = CUSTOM_APPLET_STATE_ACTIVE;
     return 0;
 }
 

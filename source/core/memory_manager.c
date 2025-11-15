@@ -1,7 +1,7 @@
 #include "applet_loader.h"
 #include <malloc.h>
 
-Result applet_allocate_memory(AppletInstance* instance) {
+Result applet_allocate_memory(CustomAppletInstance* instance) {
     if (!instance) {
         return MAKERESULT(Module_Libnx, LibnxError_BadInput);
     }
@@ -18,16 +18,16 @@ Result applet_allocate_memory(AppletInstance* instance) {
         return MAKERESULT(Module_Libnx, LibnxError_OutOfMemory);
     }
 
-    instance->memory_base = memory;
+    instance->memory = memory;
     instance->memory_size = total_size;
 
     return 0;
 }
 
-void applet_free_memory(AppletInstance* instance) {
-    if (instance && instance->memory_base) {
-        free(instance->memory_base);
-        instance->memory_base = NULL;
+void applet_free_memory(CustomAppletInstance* instance) {
+    if (instance && instance->memory) {
+        free(instance->memory);
+        instance->memory = NULL;
         instance->memory_size = 0;
     }
 }

@@ -2,6 +2,11 @@
 #include "../security/crypto.h"
 #include <malloc.h>
 #include <string.h>
+#include <stdio.h>
+#include <time.h>
+#include <sys/stat.h>
+#include <errno.h>
+#include "../../include/compat_libnx.h"
 
 #define STATE_DIR "sdmc:/dbfm/states/"
 #define STATE_FILE_TEMPLATE STATE_DIR "%s_state.bin"
@@ -10,7 +15,7 @@
 typedef struct {
     uint32_t magic;           // Magic number to identify state file
     uint32_t version;         // State format version
-    AppletType type;          // Type of applet
+    CustomAppletType type;    // Type of applet
     size_t data_size;        // Size of state data
     uint64_t timestamp;       // When state was saved
     uint8_t checksum[32];    // SHA-256 of state data
@@ -19,16 +24,13 @@ typedef struct {
 static const uint32_t STATE_MAGIC = 0x44424653; // "DBFS"
 static const uint32_t STATE_VERSION = 1;
 
-Result applet_save_state(AppletInstance* instance) {
+Result applet_save_state(CustomAppletInstance* instance) {
     if (!instance || !instance->state_data || !instance->state_size) {
         return MAKERESULT(Module_Libnx, LibnxError_BadInput);
     }
 
     // Create state directory if it doesn't exist
-    Result rc = fsdevCreateDir(STATE_DIR);
-    if (R_FAILED(rc) && rc != 0x402) { // Ignore already exists error
-        return rc;
-    }
+    fs_create_directories(STATE_DIR);
 
     // Prepare state file path
     char state_path[FS_MAX_PATH];
@@ -68,7 +70,7 @@ Result applet_save_state(AppletInstance* instance) {
     return 0;
 }
 
-Result applet_restore_state(AppletInstance* instance) {
+Result applet_restore_state(CustomAppletInstance* instance) {
     if (!instance) {
         return MAKERESULT(Module_Libnx, LibnxError_BadInput);
     }
@@ -96,7 +98,7 @@ Result applet_restore_state(AppletInstance* instance) {
         header.type != instance->info.type ||
         header.data_size > STATE_MAX_SIZE) {
         fclose(f);
-        return MAKERESULT(Module_Libnx, LibnxError_InvalidData);
+        return MAKERESULT(Module_Libnx, LibnxError_BadInput);
     }
 
     // Allocate memory for state
@@ -120,7 +122,7 @@ Result applet_restore_state(AppletInstance* instance) {
     crypto_sha256(state_data, header.data_size, checksum);
     if (memcmp(checksum, header.checksum, sizeof(checksum)) != 0) {
         free(state_data);
-        return MAKERESULT(Module_Libnx, LibnxError_InvalidData);
+        return MAKERESULT(Module_Libnx, LibnxError_BadInput);
     }
 
     // Free old state if exists

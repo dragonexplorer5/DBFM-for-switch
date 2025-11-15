@@ -2,6 +2,10 @@
 #define TASK_QUEUE_H
 
 #include <stdbool.h>
+#include <limits.h>
+#include "crypto.h"
+#include "security_audit.h"
+#include "ui.h"
 
 typedef enum {
     // File operations
@@ -62,8 +66,15 @@ typedef struct Task {
     SecurityTaskParams security;          // Security parameters
     bool requires_confirmation;           // Whether task needs confirmation
     bool is_privileged;                  // Whether task needs elevated privileges
+    bool cancel;                          // Request cancellation from UI
     struct Task* next;
+    void *op_ctx;                          // opaque per-task operation context
 } Task;
+
+// Aggregated operations across the queue
+int task_queue_get_aggregate_progress(void); // 0..100
+void task_queue_cancel_all(void); // request cancel for all tasks (current + pending)
+void task_queue_cancel_pending(void); // request cancel for pending tasks only
 
 // Queue management
 void task_queue_init(void);

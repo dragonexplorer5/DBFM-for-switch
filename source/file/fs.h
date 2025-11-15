@@ -23,4 +23,15 @@ int fs_dump_file(const char *src_path, const char *dst_name);
 // Restore a dumped file back to target directory
 int fs_restore_file(const char *dump_path, const char *dst_target);
 
+// Prompt user to select a directory. Returns a heap-allocated string which the
+// caller must free. On error returns NULL. This is a minimal compatibility
+// helper for systems without a full directory picker UI.
+char* fs_select_directory(const char* prompt);
+
+// Simple file picker helpers (compatibility shims). Return a heap-allocated
+// string which the caller must free. These are minimal implementations and
+// may need replacing with real UI-based pickers.
+char* fs_open_file_picker(const char *title, const char *filter);
+char* fs_save_file_picker(const char *title, const char *default_name);
+
 #endif // HELLO_FS_H

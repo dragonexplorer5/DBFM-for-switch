@@ -2,6 +2,7 @@
 #include <string.h>
 #include "dialog.h"
 #include "ui.h"
+#include <switch.h>
 
 static bool dialog_active = false;
 static bool progress_shown = false;
@@ -76,25 +77,27 @@ DialogResult dialog_show(const char* title, const char* message, DialogType type
     DialogResult result = DIALOG_CANCEL;
     bool done = false;
     
+    PadState pad; padInitializeDefault(&pad); padConfigureInput(1, HidNpadStyleSet_NpadStandard);
     while (!done) {
-        hidScanInput();
-        u64 kDown = hidKeysDown(CONTROLLER_P1_AUTO);
-        
+        padUpdate(&pad);
+        u64 kDown = padGetButtonsDown(&pad);
+
         if (type == DIALOG_TYPE_CONFIRM) {
-            if (kDown & KEY_A) {
+            if (kDown & HidNpadButton_A) {
                 result = DIALOG_YES;
                 done = true;
             }
-            if (kDown & KEY_B) {
+            if (kDown & HidNpadButton_B) {
                 result = DIALOG_NO;
                 done = true;
             }
         } else {
-            if (kDown & (KEY_A | KEY_B)) {
+            if (kDown & (HidNpadButton_A | HidNpadButton_B)) {
                 result = DIALOG_OK;
                 done = true;
             }
         }
+        consoleUpdate(NULL);
     }
     
     dialog_active = false;

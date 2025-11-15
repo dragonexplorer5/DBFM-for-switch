@@ -4,6 +4,20 @@
 #include <errno.h>
 #include "file_org.h"
 #include "task_queue.h"
+#include <stdio.h>
+#include <unistd.h>
+#include <sys/stat.h>
+
+// Compatibility helper for strcasestr which may not be available on all platforms
+static char *strcasestr_compat(const char *haystack, const char *needle) {
+    if (!haystack || !needle) return NULL;
+    size_t needle_len = strlen(needle);
+    if (needle_len == 0) return (char*)haystack;
+    for (; *haystack; ++haystack) {
+        if (strncasecmp(haystack, needle, needle_len) == 0) return (char*)haystack;
+    }
+    return NULL;
+}
 
 // Comparison functions for sorting
 static int compare_name(const void* a, const void* b, bool descending) {
@@ -49,6 +63,65 @@ static int compare_type(const void* a, const void* b, bool descending) {
     
     int result = strcasecmp(fa->type, fb->type);
     return descending ? -result : result;
+}
+
+// Sort a simple directory listing (char** array)
+void sort_directory_listing(char** entries, int count, int sort_mode) {
+    if (!entries || count <= 0) return;
+
+    // Create temporary FileEntry array for proper sorting
+    FileEntry* temp_entries = malloc(count * sizeof(FileEntry));
+    if (!temp_entries) return;
+
+    // Convert string entries to FileEntry structs
+    for (int i = 0; i < count; i++) {
+        strncpy(temp_entries[i].name, entries[i], NAME_MAX - 1);
+        temp_entries[i].name[NAME_MAX - 1] = '\0';
+        
+        // Get full path by combining current directory
+        char full_path[PATH_MAX];
+        snprintf(full_path, sizeof(full_path), "%s/%s", ".", entries[i]); // Using current dir
+        
+        // Get file stats
+        struct stat st;
+        if (stat(full_path, &st) == 0) {
+            temp_entries[i].stats = st;
+        }
+        
+        // Check if it's a directory (ends with '/')
+        size_t len = strlen(entries[i]);
+        temp_entries[i].is_dir = (len > 0 && entries[i][len-1] == '/');
+    }
+
+    // Sort based on mode
+    switch (sort_mode) {
+        case 0: // Name
+            qsort_r(temp_entries, count, sizeof(FileEntry), 
+                   (int (*)(const void*, const void*, void*))compare_name, (void*)false);
+            break;
+        case 1: // Date
+            qsort_r(temp_entries, count, sizeof(FileEntry),
+                   (int (*)(const void*, const void*, void*))compare_date, (void*)false);
+            break;
+        case 2: // Size
+            qsort_r(temp_entries, count, sizeof(FileEntry),
+                   (int (*)(const void*, const void*, void*))compare_size, (void*)false);
+            break;
+    }
+
+    // Copy sorted names back to original array
+    for (int i = 0; i < count; i++) {
+        strcpy(entries[i], temp_entries[i].name);
+        if (temp_entries[i].is_dir) {
+            // Ensure trailing slash for directories
+            size_t len = strlen(entries[i]);
+            if (len > 0 && entries[i][len-1] != '/') {
+                strcat(entries[i], "/");
+            }
+        }
+    }
+
+    free(temp_entries);
 }
 
 // Initialize directory listing
@@ -269,7 +342,7 @@ void dir_search_files(DirListing* listing, const char* term) {
         FileEntry* entry = &listing->entries[read_idx];
         
         // Case insensitive search
-        if (strcasestr(entry->name, term)) {
+        if (strcasestr_compat(entry->name, term)) {
             if (write_idx != read_idx) {
                 memcpy(&listing->entries[write_idx], entry, sizeof(FileEntry));
             }

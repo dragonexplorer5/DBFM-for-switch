@@ -2,12 +2,47 @@
 #include <string.h>
 #include <limits.h>
 #include "task_queue.h"
+#include <stdio.h>
+#include <errno.h>
+#include "../file/fs_ops.h"
 
 static Task* task_queue_head = NULL;
 static Task* task_queue_current = NULL;
 
 void task_queue_init(void) {
     task_queue_clear();
+}
+
+int task_queue_get_aggregate_progress(void) {
+    if (!task_queue_head) return 100;
+    unsigned long total_est = 0;
+    unsigned long processed = 0;
+    Task *t = task_queue_head;
+    int count = 0;
+    while (t) {
+        unsigned long est = (t->status.progress > 0) ? (unsigned long)(t->status.progress) : 0;
+        // if we had a size field, use it; otherwise treat each task equally
+        if (t->status.progress >= 0) {
+            total_est += 100;
+            processed += t->status.progress;
+        } else {
+            total_est += 100; processed += t->status.progress;
+        }
+        t = t->next; count++;
+    }
+    if (total_est == 0) return 0;
+    return (int)((processed * 100) / total_est);
+}
+
+void task_queue_cancel_all(void) {
+    Task *t = task_queue_head;
+    while (t) { t->cancel = true; t = t->next; }
+}
+
+void task_queue_cancel_pending(void) {
+    Task *t = task_queue_head;
+    if (t) t = t->next; // skip current
+    while (t) { t->cancel = true; t = t->next; }
 }
 
 void task_queue_add(TaskType type, const char* src, const char* dst) {
@@ -20,6 +55,7 @@ void task_queue_add(TaskType type, const char* src, const char* dst) {
     new_task->status.progress = 0;
     new_task->status.has_error = false;
     new_task->status.error_msg[0] = '\0';
+    new_task->cancel = false;
     new_task->next = NULL;
 
     if (!task_queue_head) {
@@ -46,20 +82,95 @@ static void task_set_error(Task* task, const char* error) {
 }
 
 static void task_execute(Task* task) {
-    Result rc = 0;
+    int rc = 0;
     
     switch (task->type) {
-        case TASK_COPY:
-            // TODO: Implement file copy with progress
+        case TASK_COPY: {
+            // Start incremental copy if not already started
+            task->status.has_error = false;
+            if (!task->op_ctx) {
+                task->status.progress = 0;
+                FsProgressHandle *h = malloc(sizeof(FsProgressHandle));
+                if (!h) { rc = -ENOMEM; break; }
+                h->progress = &task->status.progress; h->cancel = &task->cancel;
+                FsCopyCtx *ctx = NULL;
+                rc = fs_copy_begin(task->src_path, task->dst_path, &ctx, h);
+                if (rc == 0) {
+                    task->op_ctx = ctx;
+                    // store the FsProgressHandle pointer in op_ctx? ctx contains a copy already, so free h
+                    free(h);
+                    rc = 0;
+                } else {
+                    free(h);
+                    break;
+                }
+            }
+            // perform one step (limit bytes per frame)
+            if (task->op_ctx) {
+                FsCopyCtx *ctx = (FsCopyCtx*)task->op_ctx;
+                rc = fs_copy_step(ctx, 64 * 1024); // step up to 64KiB per frame
+                if (rc == 1) {
+                    // complete
+                    fs_copy_finish(ctx);
+                    task->op_ctx = NULL;
+                    task->status.progress = 100;
+                    rc = 0;
+                } else if (rc < 0) {
+                    // error or cancelled
+                    if (rc == -EINTR) {
+                        // cancellation requested
+                        fs_copy_abort((FsCopyCtx*)task->op_ctx, true);
+                        task->op_ctx = NULL;
+                        rc = -ECANCELED;
+                    } else {
+                        fs_copy_abort((FsCopyCtx*)task->op_ctx, true);
+                        task->op_ctx = NULL;
+                    }
+                } else {
+                    // still running; return without freeing task
+                    return;
+                }
+            }
             break;
-            
-        case TASK_MOVE:
-            // TODO: Implement file move with progress
+        }
+        case TASK_MOVE: {
+            // implement move as incremental copy + delete
+            task->status.has_error = false;
+            if (!task->op_ctx) {
+                task->status.progress = 0;
+                FsProgressHandle *h = malloc(sizeof(FsProgressHandle));
+                if (!h) { rc = -ENOMEM; break; }
+                h->progress = &task->status.progress; h->cancel = &task->cancel;
+                FsCopyCtx *ctx = NULL;
+                rc = fs_copy_begin(task->src_path, task->dst_path, &ctx, h);
+                free(h);
+                if (rc == 0) {
+                    task->op_ctx = ctx;
+                    rc = 0;
+                } else break;
+            }
+            if (task->op_ctx) {
+                FsCopyCtx *ctx = (FsCopyCtx*)task->op_ctx;
+                rc = fs_copy_step(ctx, 64 * 1024);
+                if (rc == 1) {
+                    fs_copy_finish(ctx); task->op_ctx = NULL;
+                    // remove source
+                    if (remove(task->src_path) != 0) rc = -errno;
+                    else rc = 0;
+                } else if (rc < 0) {
+                    if (rc == -EINTR) { fs_copy_abort((FsCopyCtx*)task->op_ctx, true); task->op_ctx = NULL; rc = -ECANCELED; }
+                    else { fs_copy_abort((FsCopyCtx*)task->op_ctx, true); task->op_ctx = NULL; }
+                } else return;
+            }
             break;
-            
-        case TASK_DELETE:
-            // TODO: Implement file delete with progress
+        }
+        case TASK_DELETE: {
+            task->status.progress = 0;
+            task->status.has_error = false;
+            rc = fs_delete(task->src_path);
+            if (rc == 0) task->status.progress = 100;
             break;
+        }
             
         case TASK_BACKUP_SAVE:
             // TODO: Implement save backup
@@ -90,28 +201,28 @@ static void task_execute(Task* task) {
             break;
     }
     
-    if (R_FAILED(rc)) {
+    if (rc != 0) {
         char error[256];
-        sprintf(error, "Operation failed with error 0x%x", rc);
+        if (rc < 0) snprintf(error, sizeof(error), "Operation failed: %s", strerror(-rc));
+        else snprintf(error, sizeof(error), "Operation failed with code %d", rc);
         task_set_error(task, error);
     }
 }
 
 void task_queue_process(void) {
     if (!task_queue_current) return;
-    
+
+    // Execute a single step for the current task; task_execute will return
+    // early if the task is still running.
     task_execute(task_queue_current);
-    
-    // Move to next task
-    Task* completed = task_queue_current;
-    task_queue_current = task_queue_current->next;
-    
-    // Remove completed task if it's the head
-    if (completed == task_queue_head) {
-        task_queue_head = task_queue_current;
+
+    // If the task has no op_ctx and either completed or errored, advance
+    if (!task_queue_current->op_ctx) {
+        Task* completed = task_queue_current;
+        task_queue_current = task_queue_current->next;
+        if (completed == task_queue_head) task_queue_head = task_queue_current;
+        free(completed);
     }
-    
-    free(completed);
 }
 
 void task_queue_clear(void) {

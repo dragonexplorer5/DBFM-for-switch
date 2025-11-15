@@ -4,7 +4,17 @@
 #include <string.h>
 #include <malloc.h>
 
-#define TITLEKEY_DIR "sdmc:/switch/dbfm/titlekeys"
+#include <stdio.h>
+#include <string.h>
+#include <malloc.h>
+#include <dirent.h>
+#include <unistd.h>
+#include "title_key.h"
+#include "common.h"
+#include "compat_libnx.h"
+#include "../security/crypto.h"
+
+#define TITLEKEY_DIR "sdmc:/switch/database/title_keys"
 #define TITLEKEY_DB "sdmc:/switch/dbfm/titlekeys/keys.db"
 
 static bool s_initialized = false;

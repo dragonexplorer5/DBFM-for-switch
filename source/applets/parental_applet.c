@@ -11,16 +11,14 @@
 static int parental_set_pin_from_text(const char *pin_text) {
     if (!pin_text || !pin_text[0]) return -1;
     unsigned char salt[16];
-    if (crypto_random_bytes(salt, sizeof(salt)) != 0) {
-        memset(salt, 0, sizeof(salt));
-    }
+    crypto_random_bytes(salt, sizeof(salt));
     unsigned char out[32];
     const int iterations = 12000;
-    if (pbkdf2_hmac_sha256((const unsigned char*)pin_text, strlen(pin_text), salt, sizeof(salt), iterations, out, sizeof(out)) != 0) return -1;
+    if (pbkdf2_hmac_sha256(pin_text, salt, sizeof(salt), iterations, out, sizeof(out)) != 0) return -1;
     char salthex[sizeof(salt)*2 + 1];
     char hashhex[sizeof(out)*2 + 1];
-    bin_to_hex(salt, sizeof(salt), salthex, sizeof(salthex));
-    bin_to_hex(out, sizeof(out), hashhex, sizeof(hashhex));
+    bin_to_hex_s(salt, sizeof(salt), salthex, sizeof(salthex));
+    bin_to_hex_s(out, sizeof(out), hashhex, sizeof(hashhex));
     strncpy(g_settings.parental_pin_salt, salthex, sizeof(g_settings.parental_pin_salt)-1);
     g_settings.parental_pin_salt[sizeof(g_settings.parental_pin_salt)-1] = '\0';
     strncpy(g_settings.parental_pin_hash, hashhex, sizeof(g_settings.parental_pin_hash)-1);
@@ -101,27 +99,5 @@ void parental_applet_show(int view_rows, int view_cols) {
     }
 }
 
-typedef struct {
-    // ...existing fields...
-    char theme[64];
-    int confirm_installs;
-    // ...existing code...
-
-    // Parental controls
-    int parental_enabled;                 // 0 = off, 1 = on
-    char parental_pin_hash[128];          // hex PBKDF2 hash
-    char parental_pin_salt[64];           // hex salt
-    char parental_webhook[256];           // webhook URL (if any)
-    int parental_report_days;             // report interval in days
-    long parental_last_report;            // epoch seconds of last report
-    char parental_contact[128];           // optional parent contact/email
-} AppSettings;
-
-// Prototype for helper used by parental.c
-void settings_mark_parental_report(long epoch_seconds);
-
-void settings_mark_parental_report(long epoch_seconds) {
-    g_settings.parental_last_report = epoch_seconds;
-    // Persist settings immediately 
-    save_settings();
-}
+// The settings structures and helpers are declared in settings.h.
+// No local re-declaration is required here.

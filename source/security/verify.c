@@ -1,8 +1,10 @@
 #include "verify.h"
 #include "crypto.h"
 #include "fs.h"
+#include "../..//include/libnx_errors.h"
 #include <string.h>
 #include <malloc.h>
+#include <stdio.h>
 
 #define NCA_HEADER_SIZE 0xC00
 #define NSP_READ_BUFFER_SIZE 0x800000 // 8MB buffer

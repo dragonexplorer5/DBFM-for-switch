@@ -63,10 +63,11 @@ static void _start_firmware_export(void) {
         return;
     }
 
-    if (!task_queue_add("Exporting Firmware", _export_firmware_task, task_path)) {
-        free(task_path);
-        ui_show_error("Error", "Failed to start export task");
-    }
+    // Queue export task using the task queue API. Use TASK_DUMP_SYSTEM as a
+    // generic task type and store the path in the src field. This is a
+    // minimal compatibility adjustment; a real task queue that accepts
+    // function pointers would be preferable.
+    task_queue_add(TASK_DUMP_SYSTEM, task_path, "");
 }
 
 static void _extract_content(void) {

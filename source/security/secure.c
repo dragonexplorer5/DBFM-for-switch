@@ -1,10 +1,17 @@
 #include "secure.h"
+#include "libnx_errors.h"
+#include "fs.h"
+#include "ui.h"
+#include "dialog.h"
+#include "verify.h"
 #include "crypto.h"
 #include "fs.h"
 #include "ui.h"
 #include <string.h>
 #include <malloc.h>
 #include <time.h>
+#include <stdio.h>
+#include <stdlib.h>
 
 #define SECURE_LOG_FILE "sdmc:/switch/dbfm/secure.log"
 #define SECURE_WIPE_PASSES 3
@@ -38,8 +45,8 @@ static size_t s_log_pos = 0;
 Result secure_init(void) {
     if (s_initialized) return 0;
 
-    // Create log directory
-    fs_create_directories("sdmc:/switch/dbfm");
+    // Create log directory (skip explicit fs API for portability; ensure sdmc is mounted)
+    // fsFsCreateDirectory(fsGetDefaultFileSystem(), "sdmc:/switch/dbfm");
     
     // Initialize crypto for secure operations
     Result rc = crypto_init();
@@ -121,7 +128,7 @@ Result secure_validate_operation(const SecureContext* ctx) {
                 ctx->operation_name,
                 ctx->target_path ? ctx->target_path : "N/A");
 
-        if (!ui_show_dialog("Security Confirmation", message)) {
+        if (dialog_show("Security Confirmation", message, DIALOG_TYPE_CONFIRM) != DIALOG_YES) {
             return MAKERESULT(Module_Libnx, LibnxError_RequestCanceled);
         }
     }

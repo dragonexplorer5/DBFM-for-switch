@@ -20,7 +20,7 @@
 #define CMD_RECV "RECV"
 #define CMD_INST "INST"
 
-static UsbState s_state = UsbState_Disconnected;
+static AppUsbState s_state = AppUsbState_Disconnected;
 static UsbDsInterface* s_interface = NULL;
 static UsbDsEndpoint* s_endpoint_in = NULL;
 static UsbDsEndpoint* s_endpoint_out = NULL;
@@ -63,6 +63,7 @@ static Result _usb_setup_interface(void) {
     if (R_FAILED(rc)) return rc;
 
     rc = usbDsInterface_AppendConfigurationData(s_interface, 
+                                              UsbDeviceSpeed_Full,
                                               &interface_descriptor, 
                                               USB_DT_INTERFACE_SIZE);
     if (R_FAILED(rc)) {
@@ -81,6 +82,7 @@ static Result _usb_setup_interface(void) {
     };
 
     rc = usbDsInterface_AppendConfigurationData(s_interface,
+                                              UsbDeviceSpeed_Full,
                                               &endpoint_descriptor_in,
                                               USB_DT_ENDPOINT_SIZE);
     if (R_FAILED(rc)) {
@@ -99,6 +101,7 @@ static Result _usb_setup_interface(void) {
     };
 
     rc = usbDsInterface_AppendConfigurationData(s_interface,
+                                              UsbDeviceSpeed_Full,
                                               &endpoint_descriptor_out,
                                               USB_DT_ENDPOINT_SIZE);
     if (R_FAILED(rc)) {
@@ -130,34 +133,35 @@ static Result _usb_setup_interface(void) {
 
 Result usb_start_service(void) {
     if (!s_initialized) return MAKERESULT(Module_Libnx, LibnxError_NotInitialized);
-    if (s_state != UsbState_Disconnected) return 0;
+    if (s_state != AppUsbState_Disconnected) return 0;
 
     Result rc = _usb_setup_interface();
     if (R_FAILED(rc)) return rc;
 
     // Enable interface
-    rc = usbDsInterface_Enable(s_interface);
+    // Enable interface - async interface is used in newer libnx
+    rc = usbDsInterface_EnableInterface(s_interface);
     if (R_FAILED(rc)) {
         usb_stop_service();
         return rc;
     }
 
-    s_state = UsbState_Connected;
+    s_state = AppUsbState_Connected;
 
     // Send hello command to verify connection
     char response[256];
     rc = usb_send_command(CMD_HELLO, response, sizeof(response));
     if (R_SUCCEEDED(rc) && strcmp(response, "OK") == 0) {
-        s_state = UsbState_Ready;
+        s_state = AppUsbState_Ready;
     }
 
     return rc;
 }
 
 void usb_stop_service(void) {
-    if (s_state == UsbState_Disconnected) return;
+    if (s_state == AppUsbState_Disconnected) return;
 
-    if (s_state == UsbState_Ready) {
+    if (s_state == AppUsbState_Ready) {
         usb_send_command(CMD_BYE, NULL, 0);
     }
 
@@ -172,30 +176,30 @@ void usb_stop_service(void) {
     }
 
     if (s_interface) {
-        usbDsInterface_Disable(s_interface);
+        usbDsInterface_DisableInterface(s_interface);
         usbDsInterface_Close(s_interface);
         s_interface = NULL;
     }
 
-    s_state = UsbState_Disconnected;
+    s_state = AppUsbState_Disconnected;
 }
 
-UsbState usb_get_state(void) {
+AppUsbState usb_get_state(void) {
     return s_state;
 }
 
 Result usb_send_command(const char* command, char* response, size_t response_size) {
-    if (!command || s_state != UsbState_Ready) {
+    if (!command || s_state != AppUsbState_Ready) {
         return MAKERESULT(Module_Libnx, LibnxError_BadInput);
     }
 
     size_t command_len = strlen(command);
     u32 transferred = 0;
-    Result rc = usbDsEndpoint_PostBuffer(s_endpoint_out, command, command_len, &transferred);
+    Result rc = usbDsEndpoint_PostBufferAsync(s_endpoint_out, (void*)command, command_len, &transferred);
     if (R_FAILED(rc)) return rc;
 
     if (response && response_size > 0) {
-        rc = usbDsEndpoint_PostBuffer(s_endpoint_in, response, response_size - 1, &transferred);
+        rc = usbDsEndpoint_PostBufferAsync(s_endpoint_in, response, response_size - 1, &transferred);
         if (R_SUCCEEDED(rc)) {
             response[transferred] = '\0';
         }
@@ -207,7 +211,7 @@ Result usb_send_command(const char* command, char* response, size_t response_siz
 static Result _usb_transfer_file(const char* local_path, const char* remote_path,
                                UsbTransferMode mode,
                                void (*progress_callback)(size_t current, size_t total)) {
-    if (!local_path || !remote_path || s_state != UsbState_Ready) {
+    if (!local_path || !remote_path || s_state != AppUsbState_Ready) {
         return MAKERESULT(Module_Libnx, LibnxError_BadInput);
     }
 
@@ -258,9 +262,9 @@ static Result _usb_transfer_file(const char* local_path, const char* remote_path
                 rc = MAKERESULT(Module_Libnx, LibnxError_IoError);
                 break;
             }
-            rc = usbDsEndpoint_PostBuffer(s_endpoint_out, buffer, chunk_size, &xfer);
+            rc = usbDsEndpoint_PostBufferAsync(s_endpoint_out, buffer, chunk_size, &xfer);
         } else {
-            rc = usbDsEndpoint_PostBuffer(s_endpoint_in, buffer, chunk_size, &xfer);
+            rc = usbDsEndpoint_PostBufferAsync(s_endpoint_in, buffer, chunk_size, &xfer);
             if (R_SUCCEEDED(rc)) {
                 if (fwrite(buffer, 1, xfer, f) != xfer) {
                     rc = MAKERESULT(Module_Libnx, LibnxError_IoError);
@@ -299,7 +303,7 @@ Result usb_receive_file(const char* remote_path, const char* local_path,
 
 Result usb_install_title(const char* remote_path,
                         void (*progress_callback)(size_t current, size_t total)) {
-    if (!remote_path || s_state != UsbState_Ready) {
+    if (!remote_path || s_state != AppUsbState_Ready) {
         return MAKERESULT(Module_Libnx, LibnxError_BadInput);
     }
 
@@ -338,7 +342,7 @@ Result usb_install_title(const char* remote_path,
         if (chunk_size > USB_BUFFER_SIZE) chunk_size = USB_BUFFER_SIZE;
 
         u32 xfer = 0;
-        rc = usbDsEndpoint_PostBuffer(s_endpoint_in, buffer, chunk_size, &xfer);
+         rc = usbDsEndpoint_PostBufferAsync(s_endpoint_in, buffer, chunk_size, &xfer);
         if (R_FAILED(rc)) break;
 
         if (fwrite(buffer, 1, xfer, f) != xfer) {
@@ -389,12 +393,12 @@ const char* usb_get_error_message(Result rc) {
     }
 }
 
-const char* usb_get_state_string(UsbState state) {
+const char* usb_get_state_string(AppUsbState state) {
     switch (state) {
-        case UsbState_Disconnected: return "Disconnected";
-        case UsbState_Connected: return "Connected";
-        case UsbState_Ready: return "Ready";
-        case UsbState_Error: return "Error";
+        case AppUsbState_Disconnected: return "Disconnected";
+        case AppUsbState_Connected: return "Connected";
+        case AppUsbState_Ready: return "Ready";
+        case AppUsbState_Error: return "Error";
         default: return "Unknown";
     }
 }

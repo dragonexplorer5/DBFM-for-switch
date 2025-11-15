@@ -2,6 +2,9 @@
 #define BROWSER_H
 
 #include <switch.h>
+#include <limits.h>
+#include <switch/applets/web.h>
+#include "compat_libnx.h"
 #include "crypto.h"
 #include "secure_validation.h"
 

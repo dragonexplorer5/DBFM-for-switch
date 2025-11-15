@@ -3,7 +3,15 @@
 #include <sys/socket.h>
 #include <arpa/inet.h>
 #include <unistd.h>
+#include <stdio.h>
+#include <limits.h>
+#include <stdlib.h>
 #include "nsp_manager.h"
+#include "common.h"
+#include "compat_libnx.h"
+#include "../net/downloader.h"
+
+
 
 #define NSP_BUFFER_SIZE (4 * 1024 * 1024)
 #define MAX_URL_SIZE 1024
@@ -20,7 +28,7 @@ static Result initialize_transfer_buffer(void) {
     return 0;
 }
 
-Result nsp_install_local(const char* path) {
+Result nsp_install_local(const char* path, const InstallConfig* config, void (*progress_cb)(const char* status, size_t current, size_t total)) {
     Result rc = 0;
     
     // Initialize transfer buffer
@@ -45,15 +53,21 @@ Result nsp_install_local(const char* path) {
     
     // Get NSP file size
     fseek(nsp, 0, SEEK_END);
-    size_t nsp_size = ftell(nsp);
+    // Get file size for progress tracking
+    fseek(nsp, 0, SEEK_END);
+    size_t total_size = ftell(nsp);
     fseek(nsp, 0, SEEK_SET);
+    
+    if (progress_cb) {
+        progress_cb("Reading NSP header...", 0, total_size);
+    }
     
     // Read and validate PFS0 header
     char pfs0_magic[4];
     if (fread(pfs0_magic, 1, 4, nsp) != 4 || memcmp(pfs0_magic, "PFS0", 4) != 0) {
         fclose(nsp);
         ncmContentStorageClose(&content_storage);
-        return -2;
+        return MAKERESULT(Module_Libnx, LibnxError_BadInput);
     }
     
     // Read file entry count
@@ -128,22 +142,51 @@ Result nsp_install_local(const char* path) {
     return rc;
 }
 
-Result nsp_install_network(const char* url) {
+Result nsp_install_network(const char* url, const InstallConfig* config, void (*progress_cb)(const char* status, size_t current, size_t total)) {
     Result rc = 0;
     
     // Initialize transfer buffer
     rc = initialize_transfer_buffer();
     if (R_FAILED(rc)) return rc;
     
-    // TODO: Implement network installation
-    // 1. Download NSP from URL
-    // 2. Process downloaded data in chunks
-    // 3. Install using nsp_install_local logic
-    
+    if (!url) return MAKERESULT(Module_Libnx, LibnxError_BadInput);
+
+    // Ensure download directory exists on SD
+    mkdir("sdmc:/dbfm", 0755);
+    mkdir("sdmc:/dbfm/downloads", 0755);
+
+    // Derive filename from URL
+    const char *last_slash = strrchr(url, '/');
+    const char *name = last_slash ? last_slash + 1 : NULL;
+    char tmp_path[PATH_MAX];
+    if (!name || strlen(name) == 0) snprintf(tmp_path, PATH_MAX, "sdmc:/dbfm/downloads/downloaded.nsp");
+    else {
+        // sanitize name (very small): avoid long names
+        char fname[256];
+        snprintf(fname, sizeof(fname), "%s", name);
+        snprintf(tmp_path, PATH_MAX, "sdmc:/dbfm/downloads/%s", fname);
+    }
+
+    // Stream download directly to tmp_path with progress callback
+    int dfile_rc = download_url_to_file(url, tmp_path, progress_cb);
+    if (dfile_rc != 0) {
+        // remove partial file if present
+        unlink(tmp_path);
+        return -1;
+    }
+
+    // Call local installer on the temporary file
+    rc = nsp_install_local(tmp_path, config, progress_cb);
+
+    // Optionally remove the temporary file on success
+    if (R_SUCCEEDED(rc)) {
+        unlink(tmp_path);
+    }
+
     return rc;
 }
 
-Result nsp_verify(const char* path) {
+Result nsp_verify(const char* path, ValidationFlags flags) {
     Result rc = 0;
     
     // Initialize transfer buffer
@@ -158,7 +201,7 @@ Result nsp_verify(const char* path) {
     return rc;
 }
 
-Result nsp_dump_title(u64 title_id, const char* out_path, PackageFormat format) {
+Result nsp_dump_title(u64 title_id, const char* out_path, PackageFormat format, void (*progress_cb)(const char* status, size_t current, size_t total)) {
     Result rc = 0;
     
     // Initialize transfer buffer
@@ -209,7 +252,7 @@ Result nsp_dump_title(u64 title_id, const char* out_path, PackageFormat format) 
     fwrite(&reserved, sizeof(u32), 1, out);
     
     // Get content records
-    NcmContentRecord content_records[256];
+    LegacyNcmContentRecord content_records[256];
     s32 content_count = 0;
     
     rc = ncmContentMetaDatabaseGetContentRecords(&meta_db, &meta_key,
@@ -219,14 +262,20 @@ Result nsp_dump_title(u64 title_id, const char* out_path, PackageFormat format) 
         // Write content entries
         for (s32 i = 0; i < content_count; i++) {
             // Get content info
-            NcmContentInfo content_info;
+            NcmContentInfo content_info = {0};  // Initialize to safe defaults
             rc = ncmContentStorageGetContentInfo(&content_storage,
                  &content_info, &content_records[i].content_id);
             if (R_FAILED(rc)) continue;
             
+            if (progress_cb) {
+                char status[256];
+                snprintf(status, sizeof(status), "Processing content %d/%d", i+1, content_count);
+                progress_cb(status, i, content_count);
+            }
+            
             // Write content data
             u64 offset = 0;
-            u64 remaining = content_info.size;
+            u64 remaining = content_records[i].size; // Use size from record instead of info
             
             while (remaining > 0) {
                 size_t read_size = remaining > NSP_BUFFER_SIZE ? 
@@ -264,7 +313,7 @@ Result nsp_dump_title(u64 title_id, const char* out_path, PackageFormat format) 
     return rc;
 }
 
-Result nsp_convert(const char* in_path, const char* out_path, PackageFormat format) {
+Result nsp_convert(const char* in_path, const char* out_path, PackageFormat format, void (*progress_cb)(const char* status, size_t current, size_t total)) {
     Result rc = 0;
     
     // Initialize transfer buffer
@@ -279,16 +328,17 @@ Result nsp_convert(const char* in_path, const char* out_path, PackageFormat form
     return rc;
 }
 
-Result nsp_start_server(u16 port) {
+Result nsp_start_server(const NetworkConfig* config) {
     if (server_running) return 0;
+    if (!config) return MAKERESULT(Module_Libnx, LibnxError_BadInput);
     
     server_socket = socket(AF_INET, SOCK_STREAM, 0);
     if (server_socket < 0) return -1;
     
     struct sockaddr_in server_addr = {0};
     server_addr.sin_family = AF_INET;
-    server_addr.sin_addr.s_addr = INADDR_ANY;
-    server_addr.sin_port = htons(port);
+    server_addr.sin_addr.s_addr = config->allow_remote ? INADDR_ANY : htonl(INADDR_LOOPBACK);
+    server_addr.sin_port = htons(config->port);
     
     if (bind(server_socket, (struct sockaddr*)&server_addr, sizeof(server_addr)) < 0) {
         close(server_socket);

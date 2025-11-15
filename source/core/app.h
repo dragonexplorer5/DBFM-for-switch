@@ -4,6 +4,7 @@
 #include "crypto.h"
 #include "secure_validation.h"
 #include "security_audit.h"
+#include "compat_libnx.h"
 
 // Application security levels
 typedef enum {

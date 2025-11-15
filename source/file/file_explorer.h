@@ -2,6 +2,7 @@
 #define HELLO_FILE_EXPLORER_H
 
 #include <switch.h>
+#include <limits.h>
 #include "crypto.h"
 #include "secure_validation.h"
 
@@ -45,6 +46,8 @@ typedef struct {
     char default_editor[PATH_MAX];
     char temp_dir[PATH_MAX];
     size_t copy_buffer_size;
+    bool enable_rumble;      // Enable HD rumble feedback
+    bool enable_motion;      // Enable motion controls
 } FileOpsConfig;
 
 // Sort options
@@ -67,6 +70,10 @@ void file_explorer_exit(void);
 
 // Core file explorer
 Result file_explorer_open(const char* start_dir, int view_rows, int view_cols);
+// Open file explorer in directory-selection mode. On success returns 0 and writes
+// the selected directory path (canonical sdmc:/ path) into out_buf (nul-terminated).
+// Returns non-zero on cancel or error.
+int file_explorer_select_directory(const char* start_dir, char* out_buf, size_t out_len, int view_rows, int view_cols);
 Result file_explorer_change_dir(const char* path);
 Result file_explorer_refresh(void);
 const char* file_explorer_get_current_dir(void);

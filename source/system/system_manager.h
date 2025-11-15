@@ -2,8 +2,29 @@
 #define SYSTEM_MANAGER_H
 
 #include <switch.h>
+#include <limits.h>
+#include <time.h>
 #include "crypto.h"
 #include "secure_validation.h"
+
+// Debug logging level
+#define SYSTEM_LOG_NONE   0
+#define SYSTEM_LOG_ERROR  1
+#define SYSTEM_LOG_INFO   2
+#define SYSTEM_LOG_DEBUG  3
+
+// System thermal limits (in millicelsius)
+#define SYSTEM_TEMP_WARNING  78000    // 78°C
+#define SYSTEM_TEMP_CRITICAL 83000    // 83°C
+
+// Battery thresholds
+#define BATTERY_READ_RETRY_MAX 3
+#define BATTERY_FULLY_CHARGED 95
+
+// Function prototypes
+int system_get_battery_percent(void);
+int system_get_temperature(void);
+void system_log(int level, const char* fmt, ...);
 
 // NAND partition types
 typedef enum {
@@ -60,35 +81,26 @@ typedef struct {
 Result system_manager_init(void);
 void system_manager_exit(void);
 
-// NAND operations
-Result system_dump_partition(NandPartition partition, const char* out_path, 
-                           const BackupConfig* config,
-                           void (*progress_cb)(const char* status, size_t current, size_t total));
-Result system_restore_partition(NandPartition partition, const char* backup_path,
-                              const BackupConfig* config,
-                              void (*progress_cb)(const char* status, size_t current, size_t total));
-Result system_verify_partition(NandPartition partition);
-Result system_dump_all(const char* base_path, const BackupConfig* config,
-                      void (*progress_cb)(const char* status, size_t current, size_t total));
-Result system_restore_all(const char* backup_path, const BackupConfig* config,
-                         void (*progress_cb)(const char* status, size_t current, size_t total));
+// NAND operations (simplified compatibility declarations — implementations
+// in this project use simplified signatures)
+Result system_dump_nand(const char* dump_path);
+Result system_restore_nand(const char* dump_path);
+Result system_dump_boot0(const char* dump_path);
+Result system_dump_boot1(const char* dump_path);
+Result system_get_info(char* out_info, size_t info_size);
 
-// emuMMC management
-Result emummc_create(const char* path, const EmuMMCConfig* config,
-                    void (*progress_cb)(const char* status, size_t current, size_t total));
+// emuMMC management (simplified)
+Result emummc_create(const char* path, u64 size);
 Result emummc_delete(const char* name);
 Result emummc_enable(const char* name, bool enable);
-Result emummc_dump(const char* name, const char* dump_path,
-                  void (*progress_cb)(const char* status, size_t current, size_t total));
-Result emummc_restore(const char* name, const char* dump_path,
-                     void (*progress_cb)(const char* status, size_t current, size_t total));
+Result emummc_dump(const char* dump_path);
+Result emummc_restore(const char* dump_path);
 Result emummc_verify(const char* name);
 Result emummc_list(EmuMMCConfig** configs, size_t* count);
 Result emummc_get_info(const char* name, EmuMMCConfig* config);
 
 // System configuration
 Result system_toggle_auto_rcm(bool enable);
-Result system_get_info(SystemInfo* info);
 Result system_verify_firmware(void);
 Result system_verify_keys(void);
 Result system_dump_keys(const char* out_path);
@@ -97,6 +109,8 @@ Result system_import_keys(const char* key_path);
 // Space management
 Result system_get_free_space(NandPartition partition, u64* free_bytes);
 Result system_get_total_space(NandPartition partition, u64* total_bytes);
+// Return battery percentage 0-100, or -1 if not available
+int system_get_battery_percent(void);
 Result system_cleanup_temp(void);
 Result system_optimize_space(NandPartition partition);
 
@@ -118,7 +132,5 @@ void system_render_partition_info(NandPartition partition);
 
 // Error handling
 const char* system_get_error(Result rc);
-
-#endif // SYSTEM_MANAGER_H
 
 #endif // SYSTEM_MANAGER_H

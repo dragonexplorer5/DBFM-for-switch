@@ -1,11 +1,15 @@
 #include "fs.h"
 #include <switch.h>
 #include "install.h"
+#include "sdcard.h"
+#include "../logger.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <dirent.h>
 #include <sys/stat.h>
+#include <errno.h>
+#include <unistd.h>
 
 // helper: return pointer to basename inside provided path buffer
 char *local_basename(char *path) {
@@ -17,8 +21,18 @@ char *local_basename(char *path) {
 int delete_file_at(const char *path) { return remove(path); }
 
 int list_directory(const char *path, char ***out_lines, int *out_count) {
-    DIR *d = opendir(path);
-    if (!d) return -1;
+    // Only allow SD paths (canonicalize)
+    char canon[PATH_MAX];
+    if (sdcard_canonicalize_path(path, canon, sizeof(canon)) != 0) {
+        log_event(LOG_WARN, "fs: list_directory rejected non-sd path '%s'", path);
+        return -EINVAL;
+    }
+
+    DIR *d = opendir(canon);
+    if (!d) {
+        log_event(LOG_WARN, "fs: opendir('%s') failed errno=%d", canon, errno);
+        return -errno;
+    }
     struct dirent *ent;
     char **lines = NULL; int count = 0;
     while ((ent = readdir(d)) != NULL) {
@@ -28,28 +42,11 @@ int list_directory(const char *path, char ***out_lines, int *out_count) {
         char full[1024]; snprintf(full, sizeof(full), "%s%s", path, ent->d_name);
         struct stat st;
         if (stat(full, &st) == 0 && S_ISDIR(st.st_mode)) {
-            // directory: determine if empty and if it contains a .zip-like file
-            int is_empty = 1;
-            int has_zip = 0;
-            DIR *d2 = opendir(full);
-            if (d2) {
-                struct dirent *e2;
-                while ((e2 = readdir(d2)) != NULL) {
-                    if (strcmp(e2->d_name, ".") == 0 || strcmp(e2->d_name, "..") == 0) continue;
-                    is_empty = 0;
-                    // check for .zip extension (case-insensitive)
-                    const char *dot = strrchr(e2->d_name, '.');
-                    if (dot && (strcasecmp(dot, ".zip") == 0 || strcasecmp(dot, ".zip") == 0)) has_zip = 1;
-                    if (!is_empty && !has_zip) break;
-                }
-                closedir(d2);
-            }
-            // format: name/ [ZIP] [EMPTY]
-            size_t len = strlen(ent->d_name) + 32;
+            // OPTIMIZED: Skip nested opendir() checks - these cause UI freezes on large directories
+            // Icon type will be determined lazily by the UI renderer using the icon cache
+            size_t len = strlen(ent->d_name) + 2;
             char *s = malloc(len);
-            if (has_zip) snprintf(s, len, "%s/ [ZIP]", ent->d_name);
-            else if (is_empty) snprintf(s, len, "%s/ [EMPTY]", ent->d_name);
-            else snprintf(s, len, "%s/", ent->d_name);
+            snprintf(s, len, "%s/", ent->d_name);
             lines = realloc(lines, sizeof(char*) * (count + 1)); lines[count++] = s;
         } else {
             char *s = strdup(ent->d_name);
@@ -58,7 +55,7 @@ int list_directory(const char *path, char ***out_lines, int *out_count) {
     }
     closedir(d);
     // add parent entry if not root
-    if (strcmp(path, "sdmc:/") != 0) {
+    if (strcmp(canon, "sdmc:/") != 0) {
         char *p = strdup("../");
         lines = realloc(lines, sizeof(char*) * (count + 1));
         memmove(&lines[1], &lines[0], sizeof(char*) * count);
@@ -70,8 +67,9 @@ int list_directory(const char *path, char ***out_lines, int *out_count) {
 
 void prompt_file_action(int view_rows, const char *fullpath, char ***lines_buf, int *total_lines, const char *cur_dir, int *selected_row, int *top_row, int view_cols) {
     // Simple prompt: show options and do local install or delete
+    // OPTIMIZED: Avoid blocking list_directory() - signal refresh flag instead
     printf("\x1b[%d;1H", view_rows + 2);
-    printf("Actions for %s: A=Install (copy), B=Delete, X=Cancel\n", fullpath);
+    printf("Actions for %s: A=Install, B=Delete, X=Cancel           \n", fullpath);
     fflush(stdout);
     // wait for button
     PadState pad; padInitializeDefault(&pad); padConfigureInput(1, HidNpadStyleSet_NpadStandard);
@@ -84,15 +82,21 @@ void prompt_file_action(int view_rows, const char *fullpath, char ***lines_buf, 
             break;
         }
         if (kd & HidNpadButton_B) {
-            // delete
-            remove(fullpath);
-            // update list by re-listing
-            char **new_lines = NULL; int new_count = 0;
-            if (list_directory(cur_dir, &new_lines, &new_count) == 0) {
-                // free old
-                for (int i = 0; i < *total_lines; ++i) free((*lines_buf)[i]);
-                free(*lines_buf);
-                *lines_buf = new_lines; *total_lines = new_count; *selected_row = 0; *top_row = 0;
+            // delete file
+            int del_result = remove(fullpath);
+            if (del_result == 0) {
+                // Success: signal refresh needed via negative total_lines flag
+                // File_explorer will see this and trigger incremental refresh
+                printf("\x1b[%d;1H", view_rows + 2);
+                printf("File deleted. Refreshing directory...           \n");
+                fflush(stdout);
+                usleep(500000); // brief feedback (500ms)
+                *total_lines = -1;  // negative flag = "refresh needed"
+            } else {
+                printf("\x1b[%d;1H", view_rows + 2);
+                printf("Failed to delete file (errno %d)               \n", errno);
+                fflush(stdout);
+                usleep(1000000);
             }
             break;
         }
@@ -155,4 +159,14 @@ int fs_restore_file(const char *dump_path, const char *dst_target) {
     while ((r = fread(buf,1,sizeof(buf),fs)) > 0) fwrite(buf,1,r,fd);
     fclose(fs); fclose(fd);
     return 0;
+}
+
+char* fs_select_directory(const char* prompt) {
+    (void)prompt;
+    // Minimal fallback: return sdmc root. Caller must free.
+    const char* fallback = "sdmc:/";
+    char* out = malloc(strlen(fallback) + 1);
+    if (!out) return NULL;
+    strcpy(out, fallback);
+    return out;
 }

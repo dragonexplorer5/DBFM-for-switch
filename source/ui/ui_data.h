@@ -14,7 +14,7 @@
 typedef struct {
     char title[64];
     char subtitle[128];
-    char* menu_items;
+    char** menu_items;
     int menu_item_count;
     int selected_index;
     int scroll_offset;
@@ -46,8 +46,35 @@ void ui_render_help(const UIState* state);
 void ui_render_progress(const char* operation, int progress);
 void ui_render_error(const char* error);
 
+// Homescreen rendering
+void render_homescreen(int top_row, int selected_row, int view_rows, int view_cols);
+
 // Helper functions
 void ui_clear_screen(void);
 void ui_refresh(void);
+
+// UI task/progress helpers (to be called by downloader/installer code)
+void ui_set_task(const char *label, int progress_percent);
+void ui_clear_task(void);
+
+// Terminal sizing probe
+bool ui_probe_terminal_size(int *out_rows, int *out_cols);
+
+// Downloads queue UI
+void ui_show_downloads_queue(int view_rows, int view_cols);
+
+// Downloads queue management (called by downloader/installer code)
+// label: short user-visible name (e.g. filename)
+// progress: 0-100 percent; use -1 to indicate completion/failure (removes entry)
+void ui_downloads_push_update(const char *label, int progress);
+void ui_downloads_remove(const char *label);
+
+// Favorites persistence
+Result ui_favorites_load(void);
+Result ui_favorites_save(void);
+void ui_favorites_toggle(const char *label);
+bool ui_favorites_contains(const char *label);
+int ui_favorites_count(void);
+const char *ui_favorites_get(int idx);
 
 #endif // UI_DATA_H
