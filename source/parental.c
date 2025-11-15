@@ -28,7 +28,7 @@ int parental_check_pin(const char *pin) {
     if (salt_len <= 0) return 0;
     // derive using actual salt length
     if (pbkdf2_hmac_sha256(pin, salt, (size_t)salt_len, 12000, out, sizeof(out)) != 0) return 0;
-    char hex[65]; bin_to_hex(out, 32, hex);
+    char hex[65]; bin_to_hex_s(out, 32, hex, sizeof(hex));
     return strcmp(hex, g_settings.parental_pin_hash) == 0;
 }
 

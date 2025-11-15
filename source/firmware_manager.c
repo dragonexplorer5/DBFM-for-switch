@@ -61,8 +61,8 @@ Result firmware_get_version(FirmwareInfo* out_info) {
         return MAKERESULT(Module_Libnx, LibnxError_NotInitialized);
     }
 
-    SetSysFirmwareVersion fw;
-    Result rc = setsysGetFirmwareVersion(&fw);
+    LegacyFirmwareVersion fw;
+    Result rc = getFirmwareVersion(&fw);
     if (R_FAILED(rc)) return rc;
 
     memset(out_info, 0, sizeof(FirmwareInfo));

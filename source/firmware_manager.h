@@ -2,6 +2,7 @@
 #define FIRMWARE_MANAGER_H
 
 #include <switch.h>
+#include "compat_libnx.h"
 
 // Firmware package information
 typedef struct {
