@@ -1,22 +1,15 @@
                                                           Dragon Protective License (DPL)
+🐉 Dragon Protective License (DPL‑GPL Compatible, Credit/Compensation Edition)
+Version 3.0 — For Nintendo Switch Homebrew Software Copyright (C) 2025 dragonexplorer5
 
-🐉 Dragon Protective License (DPL)
-Version 1.0 — For Nintendo Switch Homebrew Software
-Copyright (C) 2025 dragonexplorer5 Everyone is permitted to copy and distribute verbatim copies of this license document, but changing it is not allowed.
+Everyone is permitted to copy and distribute verbatim copies of this license document, but changing it is not allowed.
 
 📜 Preamble
-Most software licenses are designed to restrict your freedom to share and modify software. The Dragon Protective License (DPL) is intended to guarantee your freedom to use, modify, and share Nintendo Switch homebrew software—while protecting the integrity of the original creator’s work.
-
-This license ensures:
-
-Redistributed versions must remain free and publicly accessible.
-
-No one may reupload a perfect replica of the original software without meaningful changes.
-
-The original creator may request removal of redistributed versions at any time, with or without reason.
+The Dragon Protective License (DPL) guarantees your freedom to use, modify, and share Nintendo Switch homebrew software. This version is designed to be compatible with the GNU General Public License v3 (GPLv3), while adding a requirement that redistributors must either credit the original author or provide compensation.
 
 🔐 Terms and Conditions for Copying, Distribution, and Modification
-1. Definitions
+Definitions
+
 Software: Any Nintendo Switch homebrew application, utility, or game covered by this license.
 
 Original Author: The individual or group who first released the software under this license.
@@ -25,38 +18,45 @@ Redistributor: Any party who shares, modifies, or republishes the software.
 
 Modified Version: Any version of the software that includes changes, enhancements, or additions.
 
-2. Freedom to Use
-You may run the software for any purpose, including personal, educational, or experimental use.
+Freedom to Use You may run the software for any purpose, including personal, educational, or experimental use.
 
-3. Redistribution Requirements
-Redistributors must comply with the following conditions:
+Redistribution Requirements
 
-A. Public Availability Redistributed versions must be made available free of charge and accessible to the public. This includes providing source code or installation packages without paywalls, obfuscation, or access restrictions.
+Redistributed versions must remain free of charge and publicly accessible.
 
-B. No Exact Replication Redistributors may not reupload a perfect replica of the original software. Meaningful changes must be made to distinguish the redistributed version from the original.
+Source code must be provided under the same license terms.
 
-C. Revocable Rights The original author may request removal of any redistributed version at any time, with or without explanation. Redistributors must comply promptly and cease distribution.
+You may redistribute exact copies or modified versions, consistent with GPLv3.
 
-4. Modification and Derivative Works
-You may modify the software and distribute derivative works under the same license, provided:
+Redistributors must either:
 
-You clearly mark modified files and include the date of modification.
+Provide clear credit to the original author in documentation, source code, and release notes, OR
 
-You retain this license and all notices within the software.
+Arrange compensation to the original author (financial or otherwise), if mutually agreed.
 
-You do not misrepresent the origin of the software or imply endorsement by the original author.
+Modification and Derivative Works
 
-5. Source Code Availability
-If you distribute a modified version, you must also make the complete source code available under the same license terms.
+You may modify the software and distribute derivative works under this license and GPLv3.
 
-6. No Warranty
-The software is provided “as is,” without warranty of any kind. The entire risk as to the quality and performance of the software is with you.
+Modified files must be clearly marked, including the date of modification.
 
-7. Termination
-Violation of any terms in this license automatically terminates your rights under it. However, parties who received the software from you under this license will retain their rights as long as they remain in full compliance.
+You must not misrepresent the origin of the software or imply endorsement by the original author.
 
-8. Acceptance
-You are not required to accept this license. However, by modifying or distributing the software, you indicate your acceptance of these terms.
+Source Code Availability If you distribute a modified version, you must also make the complete source code available under the same license terms.
 
-9. Future Versions
-The original author may publish revised versions of this license. You may choose to follow the terms of the version under which the software was originally released or any later version.
+No Warranty The software is provided “as is,” without warranty of any kind. The entire risk as to the quality and performance of the software is with you.
+
+Termination Violation of any terms in this license automatically terminates your rights under it. However, parties who received the software from you under this license will retain their rights as long as they remain in full compliance.
+
+Acceptance You are not required to accept this license. However, by modifying or distributing the software, you indicate your acceptance of these terms.
+
+Future Versions The original author may publish revised versions of this license. You may choose to follow the terms of the version under which the software was originally released or any later version.
+
+✅ Key Adjustments
+Modifications allowed (GPL‑compatible).
+
+Credit required OR payment option — this gives authors recognition or compensation.
+
+No revocable rights (keeps GPL compatibility).
+
+Exact replication allowed (GPL requires this).
