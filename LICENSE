@@ -1,11 +1,10 @@
-                                                          Dragon Protective License (DPL)
 🐉 Dragon Protective License (DPL‑GPL Compatible, Credit/Compensation Edition)
 Version 3.0 — For Nintendo Switch Homebrew Software Copyright (C) 2025 dragonexplorer5
 
 Everyone is permitted to copy and distribute verbatim copies of this license document, but changing it is not allowed.
 
 📜 Preamble
-The Dragon Protective License (DPL) guarantees your freedom to use, modify, and share Nintendo Switch homebrew software. This version is designed to be compatible with the GNU General Public License v3 (GPLv3), while adding a requirement that redistributors must either credit the original author or provide compensation.
+The Dragon Protective License (DPL) guarantees your freedom to use, modify, and share Nintendo Switch homebrew software. This version is designed to be fully compatible with the GNU General Public License v3 (GPLv3), while adding a requirement that redistributors must either credit the original author or provide compensation.
 
 🔐 Terms and Conditions for Copying, Distribution, and Modification
 Definitions
@@ -52,11 +51,5 @@ Acceptance You are not required to accept this license. However, by modifying or
 
 Future Versions The original author may publish revised versions of this license. You may choose to follow the terms of the version under which the software was originally released or any later version.
 
-✅ Key Adjustments
-Modifications allowed (GPL‑compatible).
-
-Credit required OR payment option — this gives authors recognition or compensation.
-
-No revocable rights (keeps GPL compatibility).
-
-Exact replication allowed (GPL requires this).
+✅ GPL Compatibility Notice
+This license is intended to be compatible with the GNU General Public License v3 (GPLv3). You may redistribute and/or modify this software under the terms of GPLv3 as published by the Free Software Foundation, or under this Dragon Protective License v3.0.
